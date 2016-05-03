@@ -11,15 +11,20 @@ OBJDIR   = build
 SOURCES  := $(wildcard $(SRCDIR)/*.cpp)
 INCLUDES := $(wildcard $(SRCDIR)/*.h)
 OBJECTS  := $(SOURCES:$(SRCDIR)/%.cpp=$(OBJDIR)/%.o)
-rm       = rm -f
+rm       = rm -Rf
 
-ndm: $(OBJECTS)
+all: ndm
+
+ndm: build_buildDir $(OBJECTS)
 	$(CC) -shared -o libndm.so $(OBJECTS) $(LFLAGS)
+
+build_buildDir:
+	@mkdir -p $(OBJDIR)
 
 $(OBJECTS): $(OBJDIR)/%.o : $(SRCDIR)/%.cpp
 	$(CC) $(CFLAGS) -c $< -o $@
 
 .PHONEY: clean
 clean:
-	$(rm) $(OBJECTS)	
+	$(rm) $(OBJDIR)	
 	$(rm) libndm.so
