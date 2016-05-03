@@ -125,6 +125,16 @@ int ndmGroupCreate(NDM_Group* newGroupHandle, int numberGroupEntries, int* group
   return 0;
 }
 
+int ndmGroupCreateWithStride(NDM_Group* newGroupHandle, NDM_Group baseGroup, int numberContiguous, int stride) {
+  *newGroupHandle = createContiguousGroupWithStride(baseGroup, numberContiguous, stride);
+  return 0;
+}
+
+int ndmGroupExtractChunkContainingRank(NDM_Group* newGroupHandle, NDM_Group baseGroup, int extractionSize, int rank) {
+  *newGroupHandle = extractGroupBasedOnSizeAndRank(baseGroup, extractionSize, rank);
+  return 0;
+}
+
 int ndmCreateVirtualRanks(NDM_Group* newGroupHandle, NDM_Group existingGroup, int virtualRanksPerProcess) {
   *newGroupHandle = createVirtualRanksInGroup(existingGroup, virtualRanksPerProcess);
   return 0;

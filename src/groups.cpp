@@ -15,6 +15,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 static std::map<int, SpecificGroup*> groups;
 static NDM_Group groupCurrentId;
@@ -69,6 +70,57 @@ NDM_Group createVirtualRanksInGroup(NDM_Group baseGroup, int numberVirtualRanksP
     SpecificGroup* newGroup =
         new SpecificGroup(specificGroupId, it->second->getGroupSize() * numberVirtualRanksPerGroup,
                           it->second->getGroupEntries()[it->second->getMyGroupRank()], groupRanks, numberVirtualRanksPerGroup);
+    groups.insert(groups.end(), std::pair<int, SpecificGroup*>(specificGroupId, newGroup));
+    return specificGroupId;
+  } else {
+    raiseError("Existing base group not found");
+    return -1;
+  }
+}
+
+NDM_Group createContiguousGroupWithStride(NDM_Group baseGroup, int number_contiguous_ranks, int stride) {
+  std::map<int, SpecificGroup*>::iterator it = groups.find(baseGroup);
+  if (it != groups.end()) {
+    pthread_mutex_lock(&currentGroupId_mutex);
+    int specificGroupId = groupCurrentId++;
+    pthread_mutex_unlock(&currentGroupId_mutex);
+    int myBaseRank = it->second->getMyGroupRank(), myRank = -1;
+    int numberOfGroups = ceil((double)it->second->getGroupSize() / (number_contiguous_ranks + stride));
+    int correction = (number_contiguous_ranks * stride) - it->second->getGroupSize();
+    if (correction > number_contiguous_ranks) correction = number_contiguous_ranks;
+    int numberOfProcesses = (numberOfGroups * number_contiguous_ranks) - correction;
+    int* groupRanks = (int*)malloc(sizeof(int) * numberOfProcesses);
+    int i, j = 0;
+    for (i = 0; i < it->second->getGroupSize(); i++) {
+      if (i % (number_contiguous_ranks + stride) >= stride) {
+        groupRanks[j] = it->second->getGroupEntries()[i];
+        if (i == myBaseRank) myRank = j;
+        j++;
+      }
+    }
+    SpecificGroup* newGroup = new SpecificGroup(specificGroupId, numberOfProcesses, myRank, groupRanks, 1);
+    groups.insert(groups.end(), std::pair<int, SpecificGroup*>(specificGroupId, newGroup));
+    return specificGroupId;
+  } else {
+    raiseError("Existing base group not found");
+    return -1;
+  }
+}
+
+NDM_Group extractGroupBasedOnSizeAndRank(NDM_Group baseGroup, int size, int myrank) {
+  std::map<int, SpecificGroup*>::iterator it = groups.find(baseGroup);
+  if (it != groups.end()) {
+    pthread_mutex_lock(&currentGroupId_mutex);
+    int specificGroupId = groupCurrentId++;
+    pthread_mutex_unlock(&currentGroupId_mutex);
+
+    int* groupRanks = (int*)malloc(sizeof(int) * size);
+    int i, startingPoint = size * (myrank / size),
+           endPoint = it->second->getGroupSize() < startingPoint + size ? it->second->getGroupSize() : startingPoint + size;
+    for (i = startingPoint; i < endPoint; i++) {
+      groupRanks[i - startingPoint] = it->second->getGroupEntries()[i];
+    }
+    SpecificGroup* newGroup = new SpecificGroup(specificGroupId, size, myrank - startingPoint, groupRanks, 1);
     groups.insert(groups.end(), std::pair<int, SpecificGroup*>(specificGroupId, newGroup));
     return specificGroupId;
   } else {
