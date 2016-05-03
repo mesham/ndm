@@ -86,7 +86,7 @@ NDM_Group createContiguousGroupWithStride(NDM_Group baseGroup, int number_contig
     pthread_mutex_unlock(&currentGroupId_mutex);
     int myBaseRank = it->second->getMyGroupRank(), myRank = -1;
     int numberOfGroups = ceil((double)it->second->getGroupSize() / (number_contiguous_ranks + stride));
-    int correction = (number_contiguous_ranks * stride) - it->second->getGroupSize();
+    int correction = ((number_contiguous_ranks + stride) * numberOfGroups) - it->second->getGroupSize();
     if (correction > number_contiguous_ranks) correction = number_contiguous_ranks;
     int numberOfProcesses = (numberOfGroups * number_contiguous_ranks) - correction;
     int* groupRanks = (int*)malloc(sizeof(int) * numberOfProcesses);
