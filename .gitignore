@@ -66,3 +66,4 @@ core
 *.metadata
 *.settings
 *.cproject
+*.project

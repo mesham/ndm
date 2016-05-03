@@ -32,4 +32,4 @@ mandelbrot: src/mandelbrot.o
 
 .PHONEY: clean
 clean:
-	$(rm) $(OBJECTS) mandelbrot example_barrier example_reduce example_bcast example_p2p
+	$(rm) src/*.o mandelbrot example_barrier example_reduce example_bcast example_p2p
