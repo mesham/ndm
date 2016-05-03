@@ -13,7 +13,7 @@ rm       = rm -f
 %.o: %.c
 	$(CC) $(CFLAGS) -I../src/ -c $< -o $@ 
 
-all: example_p2p example_bcast example_reduce example_barrier mandelbrot
+all: example_p2p example_bcast example_reduce example_barrier example_groups mandelbrot
 
 example_p2p: src/example_p2p.o
 	$(CC) -o example_p2p src/example_p2p.o $(LFLAGS)
@@ -26,6 +26,9 @@ example_reduce: src/example_reduce.o
 
 example_barrier: src/example_barrier.o
 	$(CC) -o example_barrier src/example_barrier.o $(LFLAGS)
+
+example_groups: src/example_groups.o
+	$(CC) -o example_groups src/example_groups.o $(LFLAGS)
 
 mandelbrot: src/mandelbrot.o
 	$(CC) -o mandelbrot src/mandelbrot.o $(LFLAGS) -lm
