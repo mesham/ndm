@@ -158,13 +158,13 @@ NDM_Group extractGroupBasedOnSizeAndRank(NDM_Group baseGroup, int size, int myra
     int specificGroupId = groupCurrentId++;
     pthread_mutex_unlock(&currentGroupId_mutex);
 
-    int* groupRanks = (int*)malloc(sizeof(int) * size);
     int i, startingPoint = size * (myrank / size),
            endPoint = it->second->getGroupSize() < startingPoint + size ? it->second->getGroupSize() : startingPoint + size;
+    int* groupRanks = (int*)malloc(sizeof(int) * (endPoint - startingPoint));
     for (i = startingPoint; i < endPoint; i++) {
       groupRanks[i - startingPoint] = it->second->getGroupEntries()[i];
     }
-    SpecificGroup* newGroup = new SpecificGroup(specificGroupId, size, myrank - startingPoint, groupRanks, 1);
+    SpecificGroup* newGroup = new SpecificGroup(specificGroupId, endPoint - startingPoint, myrank - startingPoint, groupRanks, 1);
     groups.insert(groups.end(), std::pair<int, SpecificGroup*>(specificGroupId, newGroup));
     return specificGroupId;
   } else {
