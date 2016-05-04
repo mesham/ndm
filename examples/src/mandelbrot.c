@@ -61,8 +61,7 @@ void mandelbrotKernel(void* buffer, NDM_Metadata metadata) {
           break;
           if (!firstnb) {
             firstnb = 1;
-            ndmReduceFromRank(&hx, 1, NDM_INT, NDM_MIN, firstNonBoundedPoint, 0, metadata.my_rank, metadata.comm_group,
-                              uid_firstnonbounded);
+            ndmReduce(&hx, 1, NDM_INT, NDM_MIN, firstNonBoundedPoint, 0, metadata.comm_group, uid_firstnonbounded);
           }
         }
       }
@@ -70,16 +69,13 @@ void mandelbrotKernel(void* buffer, NDM_Metadata metadata) {
         boundedPoints++;
         if (!firstb) {
           firstb = 1;
-          ndmReduceFromRank(&hx, 1, NDM_INT, NDM_MIN, firstBoundedPoint, 0, metadata.my_rank, metadata.comm_group, uid_firstbounded);
+          ndmReduce(&hx, 1, NDM_INT, NDM_MIN, firstBoundedPoint, 0, metadata.comm_group, uid_firstbounded);
         }
       }
     }
-    ndmReduceFromRank(&boundedPoints, 1, NDM_INT, NDM_SUM, numberBoundedPoints, 0, metadata.my_rank, metadata.comm_group, uid_bp);
-    if (!firstb)
-      ndmReduceFromRank(NULL, 1, NDM_INT, NDM_MIN, firstBoundedPoint, 0, metadata.my_rank, metadata.comm_group, uid_firstbounded);
-    if (!firstnb)
-      ndmReduceFromRank(NULL, 1, NDM_INT, NDM_MIN, firstNonBoundedPoint, 0, metadata.my_rank, metadata.comm_group,
-                        uid_firstnonbounded);
+    ndmReduce(&boundedPoints, 1, NDM_INT, NDM_SUM, numberBoundedPoints, 0, metadata.comm_group, uid_bp);
+    if (!firstb) ndmReduce(NULL, 1, NDM_INT, NDM_MIN, firstBoundedPoint, 0, metadata.comm_group, uid_firstbounded);
+    if (!firstnb) ndmReduce(NULL, 1, NDM_INT, NDM_MIN, firstNonBoundedPoint, 0, metadata.comm_group, uid_firstnonbounded);
   }
 }
 
