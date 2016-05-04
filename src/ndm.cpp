@@ -97,9 +97,9 @@ int ndmReduceFromRank(void* data, int size, int type, NDM_Op operation, void (*c
   return 0;
 }
 
-int ndmReduceAdditive(void* data, int size, int type, int totalsize, int contributionsPerElement, int startelement, NDM_Op operation,
-                      void (*callback)(void*, NDM_Metadata), int root, NDM_Group comm_group, const char* unique_id) {
-  collective_ndmReduce(&messaging, &threadPool, data, type, size, totalsize, contributionsPerElement, startelement, operation,
+int ndmReduceAdditive(void* data, int totalsize, int type, int contributionsPerElement, int thissize, int thisstartelement,
+                      NDM_Op operation, void (*callback)(void*, NDM_Metadata), int root, NDM_Group comm_group, const char* unique_id) {
+  collective_ndmReduce(&messaging, &threadPool, data, type, thissize, totalsize, contributionsPerElement, thisstartelement, operation,
                        callback, root, NDM_ANY_MYRANK, comm_group, unique_id);
   return 0;
 }
