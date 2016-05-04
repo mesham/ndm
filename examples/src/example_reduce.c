@@ -1,5 +1,5 @@
 /*
- * example2.c
+ * example_reduce.c
  *
  *  Created on: 3 May 2016
  *      Author: nick

@@ -1,5 +1,5 @@
 /*
- * example2.c
+ * example_bcast.c
  *
  *  Created on: 3 May 2016
  *      Author: nick
@@ -27,7 +27,7 @@ int main(int argc, char* argv[]) {
       data = i * 10;
       ndmBcast(&data, 1, NDM_INT, recvFunctionBcast, i, NDM_GLOBAL_GROUP, uuid);
     } else {
-      ndmBcast(&data, 1, NDM_INT, recvFunctionBcast, i, NDM_GLOBAL_GROUP, uuid);
+      ndmBcast(NULL, 1, NDM_INT, recvFunctionBcast, i, NDM_GLOBAL_GROUP, uuid);
     }
   }
   ndmFinalise();
