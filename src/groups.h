@@ -36,6 +36,7 @@ int translateRankFromGroup(NDM_Group, int);
 NDM_Group createVirtualRanksInGroup(NDM_Group, int);
 NDM_Group createContiguousGroupWithStride(NDM_Group, int, int);
 NDM_Group extractGroupBasedOnSizeAndRank(NDM_Group, int, int);
+NDM_Group createDisjointGroup(NDM_Group, NDM_Group);
 int getGroupSize(NDM_Group);
 int getMyGroupRank(NDM_Group);
 int isRankLocalToGroup(NDM_Group, int);

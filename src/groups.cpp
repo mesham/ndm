@@ -107,6 +107,50 @@ NDM_Group createContiguousGroupWithStride(NDM_Group baseGroup, int number_contig
   }
 }
 
+NDM_Group createDisjointGroup(NDM_Group groupA, NDM_Group groupB) {
+  std::map<int, SpecificGroup*>::iterator itA = groups.find(groupA);
+  std::map<int, SpecificGroup*>::iterator itB = groups.find(groupB);
+  if (itA != groups.end() && itB != groups.end()) {
+    pthread_mutex_lock(&currentGroupId_mutex);
+    int specificGroupId = groupCurrentId++;
+    pthread_mutex_unlock(&currentGroupId_mutex);
+    int* searchedRanks = (int*)malloc(sizeof(int) * (itA->second->getGroupSize() + itB->second->getGroupSize()));
+    int i, j, actualSize = 0, myExistingRank = -1, myNewRank = -1;
+    if (itA->second->getMyGroupRank() >= 0) {
+      myExistingRank = itA->second->getGroupEntries()[itA->second->getMyGroupRank()];
+    } else if (itB->second->getMyGroupRank() >= 0) {
+      myExistingRank = itB->second->getGroupEntries()[itB->second->getMyGroupRank()];
+    }
+    for (i = 0; i < itA->second->getGroupSize(); i++) {
+      for (j = 0; j < itB->second->getGroupSize(); j++) {
+        if (itA->second->getGroupEntries()[i] == itB->second->getGroupEntries()[j]) break;
+      }
+      if (j == itB->second->getGroupSize()) {
+        if (myExistingRank == itA->second->getGroupEntries()[i]) myNewRank = actualSize;
+        searchedRanks[actualSize++] = itA->second->getGroupEntries()[i];
+      }
+    }
+
+    for (i = 0; i < itB->second->getGroupSize(); i++) {
+      for (j = 0; j < itA->second->getGroupSize(); j++) {
+        if (itA->second->getGroupEntries()[i] == itB->second->getGroupEntries()[j]) break;
+      }
+      if (j == itA->second->getGroupSize()) {
+        if (myExistingRank == itB->second->getGroupEntries()[i]) myNewRank = actualSize;
+        searchedRanks[actualSize++] = itB->second->getGroupEntries()[i];
+      }
+    }
+
+    searchedRanks = (int*)realloc(searchedRanks, sizeof(int) * actualSize);
+    SpecificGroup* newGroup = new SpecificGroup(specificGroupId, actualSize, myNewRank, searchedRanks, 1);
+    groups.insert(groups.end(), std::pair<int, SpecificGroup*>(specificGroupId, newGroup));
+    return specificGroupId;
+  } else {
+    raiseError("Existing one of the groups provided not found");
+    return -1;
+  }
+}
+
 NDM_Group extractGroupBasedOnSizeAndRank(NDM_Group baseGroup, int size, int myrank) {
   std::map<int, SpecificGroup*>::iterator it = groups.find(baseGroup);
   if (it != groups.end()) {
