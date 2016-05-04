@@ -13,7 +13,7 @@ rm       = rm -f
 %.o: %.c
 	$(CC) $(CFLAGS) -I../src/ -c $< -o $@ 
 
-all: example_p2p example_bcast example_reduce example_barrier example_groups mandelbrot
+all: example_p2p example_bcast example_reduce example_barrier example_groups mandelbrot mandelbrot_sep
 
 example_p2p: src/example_p2p.o
 	$(CC) -o example_p2p src/example_p2p.o $(LFLAGS)
@@ -33,6 +33,9 @@ example_groups: src/example_groups.o
 mandelbrot: src/mandelbrot.o
 	$(CC) -o mandelbrot src/mandelbrot.o $(LFLAGS) -lm
 
+mandelbrot_sep: src/mandelbrot_sep.o
+	$(CC) -o mandelbrot_sep src/mandelbrot_sep.o $(LFLAGS) -lm
+
 .PHONEY: clean
 clean:
-	$(rm) src/*.o mandelbrot example_barrier example_reduce example_bcast example_p2p
+	$(rm) src/*.o mandelbrot mandelbrot_sep example_barrier example_reduce example_bcast example_p2p
