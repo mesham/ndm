@@ -1,0 +1,13 @@
+Non-deterministic messaging library
+===============================
+
+This is a prototype library designed to support non-deterministic messaging in an application, specifically through active messages and callbacks.
+
+To install execute make in the current directory which will build the libndm.so library file. You can then link this into your applications and include the ndm.h header file (in src.) 
+
+To build the examples cd into the examples directory and execute make.
+
+Initialising NDM
+---------------------------
+
+Currently NDM requires that MPI has been started in thread multiple mode via MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided), where provided tells you the actual mode MPI was started in (and should be checked.) Once MPI has been initialised then call ndmInit. At the end of your main function (but not nescesarily the code execution as this can be driven by the callbacks themselves) then execute ndmFinalise before you finalise MPI.
