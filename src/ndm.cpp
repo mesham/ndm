@@ -85,21 +85,22 @@ int ndmBcastFromRank(void* data, int size, int type, void (*callback)(void*, NDM
 
 int ndmReduce(void* data, int size, int type, NDM_Op operation, void (*callback)(void*, NDM_Metadata), int root, NDM_Group comm_group,
               const char* unique_id) {
-  collective_ndmReduce(&messaging, &threadPool, data, type, size, size, 0, operation, callback, root, NDM_ANY_MYRANK, comm_group,
+  collective_ndmReduce(&messaging, &threadPool, data, type, size, size, 1, 0, operation, callback, root, NDM_ANY_MYRANK, comm_group,
                        unique_id);
   return 0;
 }
 
 int ndmReduceFromRank(void* data, int size, int type, NDM_Op operation, void (*callback)(void*, NDM_Metadata), int root, int my_rank,
                       NDM_Group comm_group, const char* unique_id) {
-  collective_ndmReduce(&messaging, &threadPool, data, type, size, size, 0, operation, callback, root, my_rank, comm_group, unique_id);
+  collective_ndmReduce(&messaging, &threadPool, data, type, size, size, 1, 0, operation, callback, root, my_rank, comm_group,
+                       unique_id);
   return 0;
 }
 
-int ndmReduceAdditive(void* data, int size, int type, int totalsize, int startelement, NDM_Op operation,
+int ndmReduceAdditive(void* data, int size, int type, int totalsize, int contributionsPerElement, int startelement, NDM_Op operation,
                       void (*callback)(void*, NDM_Metadata), int root, NDM_Group comm_group, const char* unique_id) {
-  collective_ndmReduce(&messaging, &threadPool, data, type, size, totalsize, startelement, operation, callback, root, NDM_ANY_MYRANK,
-                       comm_group, unique_id);
+  collective_ndmReduce(&messaging, &threadPool, data, type, size, totalsize, contributionsPerElement, startelement, operation,
+                       callback, root, NDM_ANY_MYRANK, comm_group, unique_id);
   return 0;
 }
 
@@ -132,6 +133,11 @@ int ndmGroupCreateWithStride(NDM_Group* newGroupHandle, NDM_Group baseGroup, int
 
 int ndmGroupExtractChunkContainingRank(NDM_Group* newGroupHandle, NDM_Group baseGroup, int extractionSize, int rank) {
   *newGroupHandle = extractGroupBasedOnSizeAndRank(baseGroup, extractionSize, rank);
+  return 0;
+}
+
+int ndmGroupCreateDisjoint(NDM_Group* newGroupHandle, NDM_Group groupA, NDM_Group groupB) {
+  *newGroupHandle = createDisjointGroup(groupA, groupB);
   return 0;
 }
 

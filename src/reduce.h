@@ -16,7 +16,7 @@
 #include "data_types.h"
 
 class ReductionState {
-  int contributedProcesses, root, type, size, numberProcesses, *dataContributions;
+  int contributedProcesses, root, type, size, numberProcesses, *dataContributions, contributionsPerElement;
   NDM_Op operation;
   NDM_Group comm_group;
   pthread_mutex_t mutex;
@@ -27,8 +27,8 @@ class ReductionState {
   char* dataNotEmpty;
 
  public:
-  ReductionState(int type, int size, void (*callback)(void*, NDM_Metadata), NDM_Op operation, int root, NDM_Group comm_group,
-                 std::string unique_id) {
+  ReductionState(int type, int size, int contributionsPerElement, void (*callback)(void*, NDM_Metadata), NDM_Op operation, int root,
+                 NDM_Group comm_group, std::string unique_id) {
     this->typeSize = getTypeSize(type);
     this->data = malloc(this->typeSize * size);
     this->dataContributions = (int*)malloc(sizeof(int) * size);
@@ -38,6 +38,7 @@ class ReductionState {
     this->type = type;
     this->size = size;
     this->callback = callback;
+    this->contributionsPerElement = contributionsPerElement;
     this->unique_id = unique_id;
     this->numberProcesses = getNumberDistinctProcesses(comm_group);
     this->contributedProcesses = 0;
@@ -63,7 +64,7 @@ class ReductionState {
   bool isDataSettingComplete() {
     int i;
     for (i = 0; i < this->size; i++) {
-      if (this->dataContributions[i] < this->localGroupSize) return false;
+      if (this->dataContributions[i] < this->localGroupSize * contributionsPerElement) return false;
     }
     return true;
   }
@@ -116,7 +117,7 @@ class ReductionState {
 };
 
 void initialise_ndmReduce(Messaging, ThreadPool);
-void collective_ndmReduce(Messaging*, ThreadPool*, void*, int, int, int, int, NDM_Op, void (*)(void*, NDM_Metadata), int, int,
+void collective_ndmReduce(Messaging*, ThreadPool*, void*, int, int, int, int, int, NDM_Op, void (*)(void*, NDM_Metadata), int, int,
                           NDM_Group, const char*);
 
 #endif /* SRC_REDUCE_H_ */

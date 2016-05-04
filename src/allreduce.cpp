@@ -46,7 +46,7 @@ void collective_ndmAllReduce(Messaging messaging_arg, ThreadPool threadPool_arg,
     allreduce_state.insert(allreduce_state.begin(), specificState);
   }
   pthread_mutex_unlock(&allreduce_state_mutex);
-  collective_ndmReduce(&messaging, &threadPool, data, type, size, size, 0, operation, reductionCallback, REDUCTION_ROOT, my_rank,
+  collective_ndmReduce(&messaging, &threadPool, data, type, size, size, 1, 0, operation, reductionCallback, REDUCTION_ROOT, my_rank,
                        comm_group, unique_id);
   bool rankIsLocalToGroup =
       (my_rank >= 0 && my_rank == REDUCTION_ROOT) || (my_rank == NDM_ANY_MYRANK && isRankLocalToGroup(comm_group, REDUCTION_ROOT));

@@ -50,13 +50,14 @@ int ndmBcast(void *, int, int, void (*)(void *, NDM_Metadata), int, NDM_Group, c
 int ndmBcastFromRank(void *, int, int, void (*)(void *, NDM_Metadata), int, int, NDM_Group, const char *);
 int ndmReduce(void *, int, int, NDM_Op, void (*)(void *, NDM_Metadata), int, NDM_Group, const char *);
 int ndmReduceFromRank(void *, int, NDM_Op, int, void (*)(void *, NDM_Metadata), int, int, NDM_Group, const char *);
-int ndmReduceAdditive(void *, int, int, int, int, NDM_Op, void (*)(void *, NDM_Metadata), int, NDM_Group, const char *);
+int ndmReduceAdditive(void *, int, int, int, int, int, NDM_Op, void (*)(void *, NDM_Metadata), int, NDM_Group, const char *);
 int ndmAllReduce(void *, int, int, NDM_Op, void (*)(void *, NDM_Metadata), NDM_Group, const char *);
 int ndmAllReduceFromRank(void *, int, int, NDM_Op, void (*)(void *, NDM_Metadata), int, NDM_Group, const char *);
 int ndmBarrier(void (*)(NDM_Metadata), NDM_Group, const char *);
 int ndmGroupCreate(NDM_Group *, int, int *);
 int ndmGroupCreateWithStride(NDM_Group *, NDM_Group, int, int);
 int ndmGroupExtractChunkContainingRank(NDM_Group *, NDM_Group, int, int);
+int ndmGroupCreateDisjoint(NDM_Group *, NDM_Group, NDM_Group);
 int ndmGroupSize(NDM_Group, int *);
 int ndmGroupRank(NDM_Group, int *);
 int ndmCreateVirtualRanks(NDM_Group *, NDM_Group, int);

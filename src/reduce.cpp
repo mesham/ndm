@@ -38,16 +38,16 @@ void initialise_ndmReduce(Messaging messaging_arg, ThreadPool threadPool_arg) {
   pthread_mutex_init(&reduction_state_lock, NULL);
 }
 
-void collective_ndmReduce(Messaging* messaging, ThreadPool* threadPool, void* data, int type, int size, int totalSize, int startPoint,
-                          NDM_Op operation, void (*callback)(void*, NDM_Metadata), int root, int my_rank, NDM_Group comm_group,
-                          const char* unique_id) {
+void collective_ndmReduce(Messaging* messaging, ThreadPool* threadPool, void* data, int type, int size, int totalSize,
+                          int contributionsPerElement, int startPoint, NDM_Op operation, void (*callback)(void*, NDM_Metadata),
+                          int root, int my_rank, NDM_Group comm_group, const char* unique_id) {
   if (getGroupSize(comm_group) == 1) {
     callback(data, messaging->generateMetaData(type, totalSize, my_rank, root, comm_group, unique_id));
   } else {
     pthread_mutex_lock(&reduction_state_lock);
     ReductionState* state = findReductionState(unique_id);
     if (state == NULL) {
-      state = new ReductionState(type, totalSize, callback, operation, root, comm_group, unique_id);
+      state = new ReductionState(type, totalSize, contributionsPerElement, callback, operation, root, comm_group, unique_id);
       reduction_state.insert(reduction_state.begin(), state);
     }
     applyOperation(state, data, size, startPoint);
