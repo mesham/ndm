@@ -46,14 +46,19 @@ class ReductionState {
     this->numberEntriesRetrieved = 0;
     this->localGroupSize = getGroupLocalSize(comm_group);
     int i;
-    for (i = 0; i < this->localGroupSize; i++) {
+    for (i = 0; i < size; i++) {
       this->dataContributions[i] = 0;
       this->dataNotEmpty[i] = 0;
     }
     pthread_mutex_init(&mutex, NULL);
   }
 
-  ~ReductionState() { pthread_mutex_destroy(&mutex); }
+  ~ReductionState() {
+    pthread_mutex_destroy(&mutex);
+    free(this->dataContributions);
+    free(this->dataNotEmpty);
+    free(this->data);
+  }
 
   bool isDataElementEmpty(int elementNumber) { return this->dataNotEmpty[elementNumber] == 0; }
 
