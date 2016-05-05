@@ -4,10 +4,14 @@
 #include "mpi.h"
 #include "ndm.h"
 
-#define HXRES 512
-#define HYRES 512
-#define MAX_ITERATIONS 100
+#define DEFAULT_HXRES 512
+#define DEFAULT_HYRES 512
+#define DEFAULT_MAX_ITERATIONS 100
 #define MAGNIFICATION 1.0
+
+int HXRES, HYRES, MAX_ITERATIONS;
+
+FILE* fileHandle;
 
 void mandelbrotKernel(void*, NDM_Metadata);
 void numberBoundedPoints(void*, NDM_Metadata);
@@ -18,10 +22,30 @@ int main(int argc, char* argv[]) {
   int provided;
   MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
   ndmInit();
+
+  if (argc >= 2) {
+    HXRES = atoi(argv[1]);
+  } else {
+    HXRES = DEFAULT_HXRES;
+  }
+
+  if (argc >= 3) {
+    HYRES = atoi(argv[2]);
+  } else {
+    HYRES = DEFAULT_HYRES;
+  }
+
+  if (argc >= 4) {
+    MAX_ITERATIONS = atoi(argv[3]);
+  } else {
+    MAX_ITERATIONS = DEFAULT_MAX_ITERATIONS;
+  }
+
   int size, myrank;
   ndmGroupRank(NDM_GLOBAL_GROUP, &myrank);
   ndmGroupSize(NDM_GLOBAL_GROUP, &size);
   if (myrank == 0) {
+    fileHandle = fopen("result_data", "w");
     int i, currentStart = 1;
     for (i = 0; i < size; i++) {
       int dataToSend[2];
@@ -35,6 +59,7 @@ int main(int argc, char* argv[]) {
   ndmRecv(mandelbrotKernel, 0, NDM_GLOBAL_GROUP, "dist");
   ndmFinalise();
   MPI_Finalize();
+  if (myrank == 0) fclose(fileHandle);
   return 0;
 }
 
@@ -81,15 +106,15 @@ void mandelbrotKernel(void* buffer, NDM_Metadata metadata) {
 
 void numberBoundedPoints(void* buffer, NDM_Metadata metadata) {
   int* data = (int*)buffer;
-  printf("Points inside = %.0f%% %s\n", ((double)data[0] / HXRES) * 100, metadata.unique_id);
+  fprintf(fileHandle, "Points inside = %.0f%%\n", ((double)data[0] / HXRES) * 100);
 }
 
 void firstNonBoundedPoint(void* buffer, NDM_Metadata metadata) {
   int* data = (int*)buffer;
-  printf("First non-bounded point=%d %s\n", data[0], metadata.unique_id);
+  fprintf(fileHandle, "First non-bounded point=%d\n", data[0]);
 }
 
 void firstBoundedPoint(void* buffer, NDM_Metadata metadata) {
   int* data = (int*)buffer;
-  printf("First bounded point=%d %s\n", data[0], metadata.unique_id);
+  fprintf(fileHandle, "First bounded point=%d\n", data[0]);
 }
