@@ -15,13 +15,15 @@
 #include "ndm.h"
 
 #define MPI_TAG 16384
+#define CLEAN_SR_EVERY 1000
 
 std::vector<SpecificMessage*> Messaging::outstandingRequests;
 std::vector<MPI_Request> Messaging::outstandingSendRequests;
 std::vector<RegisteredCommand*> Messaging::registeredCommands;
-pthread_mutex_t Messaging::mutex_outstandingSendRequests, Messaging::mutex_outstandingRequests, Messaging::mutex_registeredCommands;
+pthread_mutex_t Messaging::mutex_outstandingSendRequests, Messaging::mutex_outstandingRequests, Messaging::mutex_registeredCommands,
+    Messaging::mutex_messagingActive;
 bool Messaging::continue_polling = true, Messaging::messagingActive = true;
-int Messaging::rank = -1, Messaging::totalSize = -1, Messaging::numberRecurringCommands = 0;
+int Messaging::rank = -1, Messaging::totalSize = -1, Messaging::numberRecurringCommands = 0, Messaging::srCleanIncrement;
 
 SpecificMessage* Messaging::awaitCommand() {
   int pending_message, message_size, data_size;
@@ -30,8 +32,13 @@ SpecificMessage* Messaging::awaitCommand() {
   while (continue_polling) {
     MPI_Iprobe(MPI_ANY_SOURCE, MPI_TAG, MPI_COMM_WORLD, &pending_message, &message_status);
     if (pending_message) {
-      cleanOutstandingSendRequests();
+      if (++srCleanIncrement % CLEAN_SR_EVERY == 0) {
+        cleanOutstandingSendRequests();
+        srCleanIncrement = 0;
+      }
+      pthread_mutex_lock(&mutex_messagingActive);
       messagingActive = true;
+      pthread_mutex_unlock(&mutex_messagingActive);
       MPI_Get_count(&message_status, MPI_BYTE, &message_size);
       buffer = (char*)malloc(message_size);
       MPI_Recv(buffer, message_size, MPI_BYTE, message_status.MPI_SOURCE, MPI_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -62,35 +69,39 @@ void Messaging::cleanOutstandingSendRequests() {
   int i, flag;
   std::vector<MPI_Request>::iterator it;
   std::vector<std::vector<MPI_Request>::iterator> indexes_to_remove;
-  pthread_mutex_lock(&mutex_outstandingSendRequests);
-  for (it = outstandingSendRequests.begin(); it != outstandingSendRequests.end(); it++) {
-    MPI_Request req = (*it);
-    MPI_Test(&req, &flag, MPI_STATUS_IGNORE);
-    if (flag) indexes_to_remove.push_back(it);
+  if (pthread_mutex_trylock(&mutex_outstandingSendRequests) == 0) {
+    for (it = outstandingSendRequests.begin(); it != outstandingSendRequests.end(); it++) {
+      MPI_Request req = (*it);
+      MPI_Test(&req, &flag, MPI_STATUS_IGNORE);
+      if (flag) indexes_to_remove.push_back(it);
+    }
+    for (i = indexes_to_remove.size() - 1; i >= 0; i--) {
+      outstandingSendRequests.erase(indexes_to_remove[i]);
+    }
+    pthread_mutex_unlock(&mutex_outstandingSendRequests);
   }
-  for (i = indexes_to_remove.size() - 1; i >= 0; i--) {
-    outstandingSendRequests.erase(indexes_to_remove[i]);
-  }
-  pthread_mutex_unlock(&mutex_outstandingSendRequests);
 }
 
 void Messaging::handleOutstandingRequests() {
-  int number_sends = outstandingSendRequests.size();
+  MPI_Request* arr;
   pthread_mutex_lock(&mutex_outstandingSendRequests);
-  MPI_Request* arr = (MPI_Request*)malloc(sizeof(MPI_Request) * number_sends);
-  std::copy(outstandingSendRequests.begin(), outstandingSendRequests.end(), arr);
-  pthread_mutex_unlock(&mutex_outstandingSendRequests);
-  MPI_Waitall(number_sends, arr, MPI_STATUSES_IGNORE);
-  free(arr);
+  int number_sends = outstandingSendRequests.size();
+  if (number_sends > 0) {
+    arr = (MPI_Request*)malloc(sizeof(MPI_Request) * number_sends);
+    std::copy(outstandingSendRequests.begin(), outstandingSendRequests.end(), arr);
+    outstandingSendRequests.erase(outstandingSendRequests.begin(), outstandingSendRequests.end());
+    pthread_mutex_unlock(&mutex_outstandingSendRequests);
+    MPI_Waitall(number_sends, arr, MPI_STATUSES_IGNORE);
+    free(arr);
+  } else {
+    pthread_mutex_unlock(&mutex_outstandingSendRequests);
+  }
 }
 
 bool Messaging::readyToShutdown() {
   if (outstandingRequests.empty() && registeredCommands.size() == numberRecurringCommands) {
-    cleanOutstandingSendRequests();
-    pthread_mutex_lock(&mutex_outstandingSendRequests);
-    bool osREmpty = outstandingSendRequests.empty();
-    pthread_mutex_unlock(&mutex_outstandingSendRequests);
-    return osREmpty;
+    handleOutstandingRequests();
+    return true;
   }
   return false;
 }
@@ -99,13 +110,17 @@ void Messaging::init() {
   pthread_mutex_init(&mutex_registeredCommands, NULL);
   pthread_mutex_init(&mutex_outstandingRequests, NULL);
   pthread_mutex_init(&mutex_outstandingSendRequests, NULL);
+  pthread_mutex_init(&mutex_messagingActive, NULL);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &totalSize);
+  srCleanIncrement = 0;
 }
 
 void Messaging::registerCommand(const char* unique_id, int source, int target, NDM_Group comm_group, int action_id, bool recurring,
                                 void (*callback)(void*, NDM_Metadata)) {
+  pthread_mutex_lock(&mutex_messagingActive);
   messagingActive = true;
+  pthread_mutex_unlock(&mutex_messagingActive);
   pthread_mutex_lock(&mutex_registeredCommands);
   pthread_mutex_lock(&mutex_outstandingRequests);
   std::vector<SpecificMessage*>::iterator it;
@@ -177,12 +192,27 @@ char* Messaging::packageMessage(void* data, int type, int size, int source_pid, 
 }
 
 void Messaging::sendMessage(char* buffer, int payload_size, int target, NDM_Group comm_group) {
+  pthread_mutex_lock(&mutex_messagingActive);
   messagingActive = true;
+  pthread_mutex_unlock(&mutex_messagingActive);
   MPI_Request request_handle;
   MPI_Isend(buffer, payload_size, MPI_BYTE, translateRankFromGroup(comm_group, target), MPI_TAG, MPI_COMM_WORLD, &request_handle);
   pthread_mutex_lock(&mutex_outstandingSendRequests);
   outstandingSendRequests.push_back(request_handle);
   pthread_mutex_unlock(&mutex_outstandingSendRequests);
+}
+
+void Messaging::clearMessagingActive() {
+  pthread_mutex_lock(&mutex_messagingActive);
+  messagingActive = false;
+  pthread_mutex_unlock(&mutex_messagingActive);
+}
+
+bool Messaging::getMessagingActive() {
+  pthread_mutex_lock(&mutex_messagingActive);
+  bool ma = messagingActive;
+  pthread_mutex_unlock(&mutex_messagingActive);
+  return ma;
 }
 
 void Messaging::handleCommand(void* data) {

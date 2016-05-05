@@ -172,17 +172,17 @@ class Messaging {
   static std::vector<SpecificMessage*> outstandingRequests;
   static std::vector<MPI_Request> outstandingSendRequests;
   static std::vector<RegisteredCommand*> registeredCommands;
-  static pthread_mutex_t mutex_outstandingSendRequests, mutex_outstandingRequests, mutex_registeredCommands;
+  static pthread_mutex_t mutex_outstandingSendRequests, mutex_outstandingRequests, mutex_registeredCommands, mutex_messagingActive;
   static bool continue_polling, messagingActive;
-  static int rank, totalSize, numberRecurringCommands;
+  static int rank, totalSize, numberRecurringCommands, srCleanIncrement;
   static void runCommand(void*);
   static void cleanOutstandingSendRequests();
   static std::vector<RegisteredCommand*>::iterator locateCommand(SpecificMessage*);
 
  public:
   static void init();
-  static bool getMessagingActive() { return messagingActive; }
-  static void clearMessagingActive() { messagingActive = false; }
+  static bool getMessagingActive();
+  static void clearMessagingActive();
   static int getMyRank() { return rank; }
   static int getNumberProcessors() { return totalSize; }
   static char* packageMessage(void*, int, int, int, int, NDM_Group, int, const char*, int*);

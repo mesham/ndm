@@ -115,7 +115,7 @@ void mandelbrotKernel(void* buffer, NDM_Metadata metadata) {
 
 void localDataDump(void* buffer, NDM_Metadata metadata) {
   char uid_bp[20], uid_firstnonbounded[20], uid_firstbounded[20];
-  char* lineNumber = strstr(metadata.unique_id, "_");
+  const char* lineNumber = strstr(metadata.unique_id, "_");
   sprintf(uid_bp, "points%s", lineNumber);
   sprintf(uid_firstnonbounded, "nb%s", lineNumber);
   sprintf(uid_firstbounded, "b%s", lineNumber);
