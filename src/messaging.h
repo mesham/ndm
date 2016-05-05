@@ -8,6 +8,8 @@
 #ifndef SRC_MESSAGING_H_
 #define SRC_MESSAGING_H_
 
+#include <stack>
+#include <map>
 #include <vector>
 #include <string>
 #include <stdlib.h>
@@ -18,23 +20,15 @@
 class RequestUniqueIdentifier {
   int source_pid, target_pid, action_id;
   NDM_Group comm_group;
-  std::string* unique_id;
+  std::string unique_id;
 
  public:
-  RequestUniqueIdentifier(int source_pid, int target_pid, NDM_Group comm_group, int action_id, std::string* unique_id) {
+  RequestUniqueIdentifier(int source_pid, int target_pid, NDM_Group comm_group, int action_id, std::string unique_id) {
     this->source_pid = source_pid;
     this->target_pid = target_pid;
     this->action_id = action_id;
     this->unique_id = unique_id;
     this->comm_group = comm_group;
-  }
-
-  RequestUniqueIdentifier(int action_id, std::string* unique_id) {
-    this->source_pid = -1;
-    this->target_pid = -1;
-    this->comm_group = -1;
-    this->action_id = action_id;
-    this->unique_id = unique_id;
   }
 
   bool operator<(const RequestUniqueIdentifier& rhs) const {
@@ -52,25 +46,25 @@ class RequestUniqueIdentifier {
     }
     if (this->action_id < rhs.action_id) return true;
     if (this->action_id > rhs.action_id) return false;
-    size_t wildCardLocA = unique_id->find('*');
-    size_t wildCardLocB = rhs.unique_id->find('*');
+    size_t wildCardLocA = unique_id.find('*');
+    size_t wildCardLocB = rhs.unique_id.find('*');
     if (wildCardLocA != std::string::npos || wildCardLocB != std::string::npos) {
       if (wildCardLocA == std::string::npos) {
-        return unique_id->substr(0, wildCardLocB) < rhs.unique_id->substr(0, wildCardLocB);
+        return unique_id.substr(0, wildCardLocB) < rhs.unique_id.substr(0, wildCardLocB);
       } else if (wildCardLocB == std::string::npos) {
-        return unique_id->substr(0, wildCardLocA) < rhs.unique_id->substr(0, wildCardLocA);
+        return unique_id.substr(0, wildCardLocA) < rhs.unique_id.substr(0, wildCardLocA);
       } else {
-        return unique_id->substr(0, wildCardLocA) < rhs.unique_id->substr(0, wildCardLocB);
+        return unique_id.substr(0, wildCardLocA) < rhs.unique_id.substr(0, wildCardLocB);
       }
     } else {
-      return *unique_id < *rhs.unique_id;
+      return unique_id < rhs.unique_id;
     }
   }
 
   int getSourcePid() const { return source_pid; }
   int getTargetPid() const { return target_pid; }
   NDM_Group getCommGroup() const { return comm_group; }
-  std::string* getUniqueId() const { return unique_id; }
+  std::string getUniqueId() const { return unique_id; }
   int getActionId() const { return action_id; }
 };
 
@@ -168,16 +162,53 @@ class RegisteredCommand {
   NDM_Group getCommGroup() const { return comm_group; }
 };
 
+class RegisterdCommandContainer {
+  std::stack<RegisteredCommand*> commands;
+  pthread_mutex_t mutex;
+
+ public:
+  RegisterdCommandContainer() { pthread_mutex_init(&mutex, NULL); }
+
+  void lock() { pthread_mutex_lock(&mutex); }
+  void unlock() { pthread_mutex_unlock(&mutex); }
+  void pushCommand(RegisteredCommand* command) { commands.push(command); }
+  void popCommand() { commands.pop(); }
+  RegisteredCommand* getFirstCommand(RegisteredCommand* command) { return commands.top(); }
+  RegisteredCommand* getFirstCommandKeepOnlyIfRecurring() {
+    RegisteredCommand* topCommand = commands.top();
+    if (!topCommand->getRecurring()) commands.pop();
+    return topCommand;
+  }
+  int getSize() { return commands.size(); }
+  bool isEmpty() { return commands.empty(); }
+};
+
+class SpecificMessageContainer {
+  std::stack<SpecificMessage*> messages;
+  pthread_mutex_t mutex;
+
+ public:
+  SpecificMessageContainer() { pthread_mutex_init(&mutex, NULL); }
+
+  void lock() { pthread_mutex_lock(&mutex); }
+  void unlock() { pthread_mutex_unlock(&mutex); }
+  void pushMessage(SpecificMessage* message) { messages.push(message); }
+  std::stack<SpecificMessage*>* getMessages() { return &messages; }
+  int getSize() { return messages.size(); }
+  bool isEmpty() { return messages.empty(); }
+};
+
 class Messaging {
-  static std::vector<SpecificMessage*> outstandingRequests;
   static std::vector<MPI_Request> outstandingSendRequests;
-  static std::vector<RegisteredCommand*> registeredCommands;
-  static pthread_mutex_t mutex_outstandingSendRequests, mutex_outstandingRequests, mutex_registeredCommands, mutex_messagingActive;
+  static std::map<RequestUniqueIdentifier, RegisterdCommandContainer*> registeredCommands;
+  static std::map<RequestUniqueIdentifier, SpecificMessageContainer*> outstandingMessages;
+  static pthread_mutex_t mutex_outstandingSendRequests, mutex_messagingActive, mutex_numRegisteredCommands,
+      mutex_numOutstandingMessages;
+  static pthread_rwlock_t rwlock_registeredCommands, rwlock_outstandingMessages;
   static bool continue_polling, messagingActive;
-  static int rank, totalSize, numberRecurringCommands, srCleanIncrement;
+  static int rank, totalSize, numberRecurringCommands, srCleanIncrement, totalNumberCommands, totalNumberOutstandingMessages;
   static void runCommand(void*);
   static void cleanOutstandingSendRequests();
-  static std::vector<RegisteredCommand*>::iterator locateCommand(SpecificMessage*);
 
  public:
   static void init();
