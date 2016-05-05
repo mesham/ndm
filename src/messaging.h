@@ -16,6 +16,7 @@
 #include <pthread.h>
 #include <mpi.h>
 #include "ndm.h"
+#include "threadpool.h"
 
 class RequestUniqueIdentifier {
   int source_pid, target_pid, action_id;
@@ -209,9 +210,10 @@ class Messaging {
   static int rank, totalSize, numberRecurringCommands, srCleanIncrement, totalNumberCommands, totalNumberOutstandingMessages;
   static void runCommand(void*);
   static void cleanOutstandingSendRequests();
+  static void localMessagingCallback(void*);
 
  public:
-  static void init();
+  static void init(ThreadPool*);
   static bool getMessagingActive();
   static void clearMessagingActive();
   static int getMyRank() { return rank; }

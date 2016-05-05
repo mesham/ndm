@@ -17,6 +17,7 @@
 #include "data_types.h"
 #include "groups.h"
 #include "ndm.h"
+#include "threadpool.h"
 
 #define MPI_TAG 16384
 #define CLEAN_SR_EVERY 1000
@@ -25,12 +26,19 @@ std::map<RequestUniqueIdentifier, SpecificMessageContainer*> Messaging::outstand
 std::vector<MPI_Request> Messaging::outstandingSendRequests;
 std::map<RequestUniqueIdentifier, RegisterdCommandContainer*> Messaging::registeredCommands;
 
+ThreadPool* ltPool;
+
 pthread_mutex_t Messaging::mutex_outstandingSendRequests, Messaging::mutex_messagingActive, Messaging::mutex_numRegisteredCommands,
     Messaging::mutex_numOutstandingMessages;
 pthread_rwlock_t Messaging::rwlock_registeredCommands, Messaging::rwlock_outstandingMessages;
 bool Messaging::continue_polling = true, Messaging::messagingActive = true;
 int Messaging::rank = -1, Messaging::totalSize = -1, Messaging::numberRecurringCommands = 0, Messaging::srCleanIncrement,
     Messaging::totalNumberCommands, Messaging::totalNumberOutstandingMessages;
+
+struct PassToLocalCallBackThread {
+  SpecificMessage* message;
+  void (*callback)(void*, NDM_Metadata);
+};
 
 SpecificMessage* Messaging::awaitCommand() {
   int pending_message, message_size, data_size;
@@ -116,11 +124,13 @@ bool Messaging::readyToShutdown() {
     // handleOutstandingRequests();
     cleanOutstandingSendRequests();
     if (outstandingSendRequests.empty()) return true;
+  } else {
+    printf("%d vs %d and %d\n", currentOMessages, currentNumC, numberRecurringCommands);
   }
   return false;
 }
 
-void Messaging::init() {
+void Messaging::init(ThreadPool* tp) {
   pthread_rwlock_init(&rwlock_registeredCommands, NULL);
   pthread_rwlock_init(&rwlock_outstandingMessages, NULL);
   pthread_mutex_init(&mutex_outstandingSendRequests, NULL);
@@ -132,6 +142,7 @@ void Messaging::init() {
   srCleanIncrement = 0;
   totalNumberCommands = 0;
   totalNumberOutstandingMessages = 0;
+  ltPool = tp;
 }
 
 void Messaging::registerCommand(const char* unique_id, int source, int target, NDM_Group comm_group, int action_id, bool recurring,
@@ -190,12 +201,29 @@ void Messaging::registerCommand(const char* unique_id, int source, int target, N
     std::vector<SpecificMessage*>::iterator it;
     for (it = outstandingMessagesToHandle.begin(); it < outstandingMessagesToHandle.end(); it++) {
       printf("Call out\n");
-      callback((*it)->getData(), generateMetaData((*it)->getMessageType(), (*it)->getMessageLength(), (*it)->getSourcePid(),
-                                                  (*it)->getTargetPid(), (*it)->getCommGroup(), (*it)->getUniqueId()->c_str()));
+      SpecificMessage* message =
+          new SpecificMessage((*it)->getSourcePid(), (*it)->getTargetPid(), comm_group, 0, (*it)->getMessageLength(),
+                              (*it)->getMessageType(), new std::string(unique_id), (*it)->getData());
+      PassToLocalCallBackThread* plcbt = (PassToLocalCallBackThread*)malloc(sizeof(PassToLocalCallBackThread));
+      plcbt->message = message;
+      plcbt->callback = callback;
+      ltPool->startThread(localMessagingCallback, plcbt);
+      // callback((*it)->getData(), generateMetaData((*it)->getMessageType(), (*it)->getMessageLength(), (*it)->getSourcePid(),
+      //                                            (*it)->getTargetPid(), (*it)->getCommGroup(), (*it)->getUniqueId()->c_str()));
       delete (*it);
     }
   }
   if (recurring) numberRecurringCommands++;
+}
+
+void Messaging::localMessagingCallback(void* data) {
+  PassToLocalCallBackThread* plcbt = (PassToLocalCallBackThread*)data;
+  SpecificMessage* message = plcbt->message;
+  plcbt->callback(message->getData(),
+                  generateMetaData(message->getMessageType(), message->getMessageLength(), message->getSourcePid(),
+                                   message->getTargetPid(), message->getCommGroup(), message->getUniqueId()->c_str()));
+  free(plcbt->message);
+  free(plcbt);
 }
 
 NDM_Metadata Messaging::generateMetaData(int dataType, int numberElements, int source, int my_rank, NDM_Group comm_group,

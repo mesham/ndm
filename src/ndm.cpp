@@ -35,7 +35,7 @@ static const char alphanum[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl
 int ndmInit(void) {
   continue_polling = true;
   threadPool.initThreadPool();
-  messaging.init();
+  messaging.init(&threadPool);
   initialiseGroupDirectory();
   initialise_ndmBarrier();
   initialise_ndmReduce(messaging, threadPool);
