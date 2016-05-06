@@ -16,7 +16,6 @@
 #include <pthread.h>
 #include <mpi.h>
 #include "ndm.h"
-#include "threadpool.h"
 
 class RequestUniqueIdentifier {
   int source_pid, target_pid, action_id;
@@ -184,28 +183,12 @@ class RegisterdCommandContainer {
   bool isEmpty() { return commands.empty(); }
 };
 
-class SpecificMessageContainer {
-  std::stack<SpecificMessage*> messages;
-  pthread_mutex_t mutex;
-
- public:
-  SpecificMessageContainer() { pthread_mutex_init(&mutex, NULL); }
-
-  void lock() { pthread_mutex_lock(&mutex); }
-  void unlock() { pthread_mutex_unlock(&mutex); }
-  void pushMessage(SpecificMessage* message) { messages.push(message); }
-  std::stack<SpecificMessage*>* getMessages() { return &messages; }
-  int getSize() { return messages.size(); }
-  bool isEmpty() { return messages.empty(); }
-};
-
 class Messaging {
   static std::vector<MPI_Request> outstandingSendRequests;
   static std::map<RequestUniqueIdentifier, RegisterdCommandContainer*> registeredCommands;
-  static std::map<RequestUniqueIdentifier, SpecificMessageContainer*> outstandingMessages;
-  static pthread_mutex_t mutex_outstandingSendRequests, mutex_messagingActive, mutex_numRegisteredCommands,
-      mutex_numOutstandingMessages;
-  static pthread_rwlock_t rwlock_registeredCommands, rwlock_outstandingMessages;
+  static std::vector<SpecificMessage*> outstandingRequests;
+  static pthread_mutex_t mutex_outstandingSendRequests, mutex_outstandingRequests, mutex_messagingActive, mutex_numRegisteredCommands;;
+  static pthread_rwlock_t rwlock_registeredCommands;
   static bool continue_polling, messagingActive;
   static int rank, totalSize, numberRecurringCommands, srCleanIncrement, totalNumberCommands, totalNumberOutstandingMessages;
   static void runCommand(void*);
@@ -213,7 +196,7 @@ class Messaging {
   static void localMessagingCallback(void*);
 
  public:
-  static void init(ThreadPool*);
+  static void init();
   static bool getMessagingActive();
   static void clearMessagingActive();
   static int getMyRank() { return rank; }

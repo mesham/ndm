@@ -17,28 +17,19 @@
 #include "data_types.h"
 #include "groups.h"
 #include "ndm.h"
-#include "threadpool.h"
 
 #define MPI_TAG 16384
 #define CLEAN_SR_EVERY 1000
 
-std::map<RequestUniqueIdentifier, SpecificMessageContainer*> Messaging::outstandingMessages;
+std::vector<SpecificMessage*> Messaging::outstandingRequests;
 std::vector<MPI_Request> Messaging::outstandingSendRequests;
 std::map<RequestUniqueIdentifier, RegisterdCommandContainer*> Messaging::registeredCommands;
 
-ThreadPool* ltPool;
-
-pthread_mutex_t Messaging::mutex_outstandingSendRequests, Messaging::mutex_messagingActive, Messaging::mutex_numRegisteredCommands,
-    Messaging::mutex_numOutstandingMessages;
-pthread_rwlock_t Messaging::rwlock_registeredCommands, Messaging::rwlock_outstandingMessages;
+pthread_mutex_t Messaging::mutex_outstandingSendRequests, Messaging::mutex_outstandingRequests, Messaging::mutex_messagingActive, Messaging::mutex_numRegisteredCommands;
+pthread_rwlock_t Messaging::rwlock_registeredCommands;
 bool Messaging::continue_polling = true, Messaging::messagingActive = true;
 int Messaging::rank = -1, Messaging::totalSize = -1, Messaging::numberRecurringCommands = 0, Messaging::srCleanIncrement,
-    Messaging::totalNumberCommands, Messaging::totalNumberOutstandingMessages;
-
-struct PassToLocalCallBackThread {
-  SpecificMessage* message;
-  void (*callback)(void*, NDM_Metadata);
-};
+    Messaging::totalNumberCommands;
 
 SpecificMessage* Messaging::awaitCommand() {
   int pending_message, message_size, data_size;
@@ -117,32 +108,24 @@ bool Messaging::readyToShutdown() {
   pthread_mutex_lock(&mutex_numRegisteredCommands);
   int currentNumC = totalNumberCommands;
   pthread_mutex_unlock(&mutex_numRegisteredCommands);
-  pthread_mutex_lock(&mutex_numOutstandingMessages);
-  int currentOMessages = totalNumberOutstandingMessages;
-  pthread_mutex_unlock(&mutex_numOutstandingMessages);
-  if (currentOMessages == 0 && currentNumC == numberRecurringCommands) {
+  if (outstandingRequests.empty() && currentNumC == numberRecurringCommands) {
     // handleOutstandingRequests();
     cleanOutstandingSendRequests();
     if (outstandingSendRequests.empty()) return true;
-  } else {
-    printf("%d vs %d and %d\n", currentOMessages, currentNumC, numberRecurringCommands);
   }
   return false;
 }
 
-void Messaging::init(ThreadPool* tp) {
+void Messaging::init() {
   pthread_rwlock_init(&rwlock_registeredCommands, NULL);
-  pthread_rwlock_init(&rwlock_outstandingMessages, NULL);
+  pthread_mutex_init(&mutex_outstandingRequests, NULL);
   pthread_mutex_init(&mutex_outstandingSendRequests, NULL);
-  pthread_mutex_init(&mutex_numOutstandingMessages, NULL);
   pthread_mutex_init(&mutex_messagingActive, NULL);
   pthread_mutex_init(&mutex_numRegisteredCommands, NULL);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &totalSize);
   srCleanIncrement = 0;
   totalNumberCommands = 0;
-  totalNumberOutstandingMessages = 0;
-  ltPool = tp;
 }
 
 void Messaging::registerCommand(const char* unique_id, int source, int target, NDM_Group comm_group, int action_id, bool recurring,
@@ -150,32 +133,27 @@ void Messaging::registerCommand(const char* unique_id, int source, int target, N
   pthread_mutex_lock(&mutex_messagingActive);
   messagingActive = true;
   pthread_mutex_unlock(&mutex_messagingActive);
-  std::vector<SpecificMessage*> outstandingMessagesToHandle;
-  std::stack<SpecificMessage*>* specificMessages;
-  int i;
-  pthread_rwlock_rdlock(&rwlock_outstandingMessages);
-  std::map<RequestUniqueIdentifier, SpecificMessageContainer*>::iterator messagesIt =
-      outstandingMessages.find(RequestUniqueIdentifier(source, target, comm_group, action_id, std::string(unique_id)));
-  if (messagesIt != outstandingMessages.end()) {
-    messagesIt->second->lock();
-    if (!messagesIt->second->isEmpty()) {
-      specificMessages = messagesIt->second->getMessages();
-      for (i = 0; i < specificMessages->size(); i++) {
-        outstandingMessagesToHandle.push_back(specificMessages->top());
-        specificMessages->pop();
-      }
+ pthread_mutex_lock(&mutex_outstandingRequests);
+  std::vector<SpecificMessage*>::iterator it;
+  std::vector<SpecificMessage*> outstandingRequestsToHandle;
+  std::vector<std::vector<SpecificMessage*>::iterator> outstandingIteratorsToRemove;
+  for (it = outstandingRequests.begin(); it < outstandingRequests.end(); it++) {
+    if ((*it)->getSourcePid() == source && (*it)->getActionId() == action_id && (*it)->getCommGroup() == comm_group &&
+        ((*it)->getTargetPid() == NDM_ANY_SOURCE || target == NDM_ANY_SOURCE || (*it)->getTargetPid() == target) &&
+        strcmp((*it)->getUniqueId()->c_str(), unique_id) == 0) {
+      outstandingRequestsToHandle.push_back(*it);
+      outstandingIteratorsToRemove.push_back(it);
     }
-    if (!outstandingMessagesToHandle.empty()) {
-      pthread_mutex_lock(&mutex_numOutstandingMessages);
-      totalNumberOutstandingMessages -= outstandingMessagesToHandle.size();
-      pthread_mutex_unlock(&mutex_numOutstandingMessages);
-    }
-    messagesIt->second->unlock();
   }
+  if (!outstandingIteratorsToRemove.empty()) {
+    int i;
+    for (i = outstandingIteratorsToRemove.size() - 1; i >= 0; i--) {
+      outstandingRequests.erase(outstandingIteratorsToRemove[i]);
+    }
+  }
+  pthread_mutex_unlock(&mutex_outstandingRequests);
 
-  pthread_rwlock_unlock(&rwlock_outstandingMessages);
-
-  if (outstandingMessagesToHandle.empty() || recurring) {
+  if (outstandingRequestsToHandle.empty() || recurring) {
     pthread_mutex_lock(&mutex_numRegisteredCommands);
     totalNumberCommands++;
     pthread_mutex_unlock(&mutex_numRegisteredCommands);
@@ -197,33 +175,14 @@ void Messaging::registerCommand(const char* unique_id, int source, int target, N
     it->second->pushCommand(new RegisteredCommand(unique_id, source, target, comm_group, action_id, recurring, callback));
     it->second->unlock();
   }
-  if (!outstandingMessagesToHandle.empty()) {
-    std::vector<SpecificMessage*>::iterator it;
-    for (it = outstandingMessagesToHandle.begin(); it < outstandingMessagesToHandle.end(); it++) {
-      printf("Call out\n");
-      SpecificMessage* message =
-          new SpecificMessage((*it)->getSourcePid(), (*it)->getTargetPid(), comm_group, 0, (*it)->getMessageLength(),
-                              (*it)->getMessageType(), new std::string(unique_id), (*it)->getData());
-      PassToLocalCallBackThread* plcbt = (PassToLocalCallBackThread*)malloc(sizeof(PassToLocalCallBackThread));
-      plcbt->message = message;
-      plcbt->callback = callback;
-      ltPool->startThread(localMessagingCallback, plcbt);
-      // callback((*it)->getData(), generateMetaData((*it)->getMessageType(), (*it)->getMessageLength(), (*it)->getSourcePid(),
-      //                                            (*it)->getTargetPid(), (*it)->getCommGroup(), (*it)->getUniqueId()->c_str()));
+  if (!outstandingRequestsToHandle.empty()) {
+    for (it = outstandingRequestsToHandle.begin(); it < outstandingRequestsToHandle.end(); it++) {
+      callback((*it)->getData(), generateMetaData((*it)->getMessageType(), (*it)->getMessageLength(), (*it)->getSourcePid(),
+                                                  (*it)->getTargetPid(), (*it)->getCommGroup(), (*it)->getUniqueId()->c_str()));
       delete (*it);
     }
   }
   if (recurring) numberRecurringCommands++;
-}
-
-void Messaging::localMessagingCallback(void* data) {
-  PassToLocalCallBackThread* plcbt = (PassToLocalCallBackThread*)data;
-  SpecificMessage* message = plcbt->message;
-  plcbt->callback(message->getData(),
-                  generateMetaData(message->getMessageType(), message->getMessageLength(), message->getSourcePid(),
-                                   message->getTargetPid(), message->getCommGroup(), message->getUniqueId()->c_str()));
-  free(plcbt->message);
-  free(plcbt);
 }
 
 NDM_Metadata Messaging::generateMetaData(int dataType, int numberElements, int source, int my_rank, NDM_Group comm_group,
@@ -312,25 +271,9 @@ void Messaging::handleCommand(void* data) {
     pthread_rwlock_unlock(&rwlock_registeredCommands);
   }
   if (!commandExecuted) {
-    RequestUniqueIdentifier ruuid = RequestUniqueIdentifier(message->getSourcePid(), message->getTargetPid(), message->getCommGroup(),
-                                                            message->getActionId(), *message->getUniqueId());
-    pthread_rwlock_rdlock(&rwlock_outstandingMessages);
-    std::map<RequestUniqueIdentifier, SpecificMessageContainer*>::iterator it = outstandingMessages.find(ruuid);
-    if (it == outstandingMessages.end()) {
-      pthread_rwlock_unlock(&rwlock_outstandingMessages);
-      pthread_rwlock_wrlock(&rwlock_outstandingMessages);
-      it = outstandingMessages.find(ruuid);
-      if (it == outstandingMessages.end()) {
-        it = outstandingMessages.insert(std::pair<RequestUniqueIdentifier, SpecificMessageContainer*>(
-                                            ruuid, new SpecificMessageContainer())).first;
-      }
-    }
-    it->second->lock();
-    pthread_rwlock_unlock(&rwlock_outstandingMessages);
-    it->second->pushMessage(new SpecificMessage(message));
-    pthread_mutex_lock(&mutex_numOutstandingMessages);
-    totalNumberOutstandingMessages++;
-    pthread_mutex_unlock(&mutex_numOutstandingMessages);
-    it->second->unlock();
+    SpecificMessage* newMessage = new SpecificMessage(message);
+    pthread_mutex_lock(&mutex_outstandingRequests);
+    outstandingRequests.push_back(newMessage);
+    pthread_mutex_unlock(&mutex_outstandingRequests);
   }
 }
