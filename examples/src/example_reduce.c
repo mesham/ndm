@@ -23,8 +23,8 @@ int main(int argc, char* argv[]) {
   ndmGroupRank(NDM_GLOBAL_GROUP, &data);
   ndmAllReduce(&data, 1, NDM_INT, NDM_MAX, recvFunction, NDM_GLOBAL_GROUP, "maxrank");
   data = 5;
-  ndmReduceAdditive(&data, 1, NDM_INT, 12, 1, 0, NDM_SUM, additiveRecvFunction, 0, NDM_GLOBAL_GROUP, "additive");
-  ndmReduceAdditive(&data, 1, NDM_INT, 12, 1, 0, NDM_SUM, additiveRecvFunction, 0, NDM_GLOBAL_GROUP, "additive");
+  ndmReduceAdditive(&data, 1, NDM_INT, 2, 1, 0, NDM_SUM, additiveRecvFunction, 0, NDM_GLOBAL_GROUP, "additive");
+  ndmReduceAdditive(&data, 1, NDM_INT, 2, 1, 0, NDM_SUM, additiveRecvFunction, 0, NDM_GLOBAL_GROUP, "additive");
   ndmFinalise();
   MPI_Finalize();
   return 0;
