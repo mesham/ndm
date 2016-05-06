@@ -5,6 +5,7 @@
  *      Author: nick
  */
 
+#include <map>
 #include <vector>
 #include <iterator>
 #include <string.h>
@@ -19,13 +20,30 @@
 
 static int REDUCE_ACTION_ID = 2;
 
-static std::vector<ReductionState*> reduction_state;
+struct ReductionStateComparitor {
+  bool operator()(std::string a, std::string b) {
+    size_t wildCardLocA = a.find('*');
+    size_t wildCardLocB = b.find('*');
+    if (wildCardLocA != std::string::npos || wildCardLocB != std::string::npos) {
+      if (wildCardLocA == std::string::npos) {
+        return a.substr(0, wildCardLocB) < b.substr(0, wildCardLocB);
+      } else if (wildCardLocB == std::string::npos) {
+        return a.substr(0, wildCardLocA) < b.substr(0, wildCardLocA);
+      } else {
+        return a.substr(0, wildCardLocA) < b.substr(0, wildCardLocB);
+      }
+    } else {
+      return a < b;
+    }
+  }
+};
+
+static std::map<std::string, ReductionState*, ReductionStateComparitor> reduction_state;
 static pthread_mutex_t reduction_state_lock;
 static Messaging messaging;
 static ThreadPool threadPool;
 
 static void reduction_callback_at_root(void*, NDM_Metadata);
-static std::vector<ReductionState*>::iterator findReductionState(const char*);
 static void sendToSpecificProcess(Messaging*, void*, int, int, int, int, NDM_Group, const char*);
 static void applyOperation(ReductionState*, void*, int, int);
 static void applyActualOperation(int*, int*, NDM_Op);
@@ -42,18 +60,17 @@ void collective_ndmReduce(Messaging* messaging, ThreadPool* threadPool, void* da
                           int contributionsPerElement, int startPoint, NDM_Op operation, void (*callback)(void*, NDM_Metadata),
                           int root, int my_rank, NDM_Group comm_group, const char* unique_id) {
   pthread_mutex_lock(&reduction_state_lock);
-  std::vector<ReductionState*>::iterator it = findReductionState(unique_id);
+  std::map<std::string, ReductionState*, ReductionStateComparitor>::iterator it = reduction_state.find(unique_id);
   ReductionState* state;
   if (it == reduction_state.end()) {
     state = new ReductionState(type, totalSize, contributionsPerElement, callback, operation, root, comm_group, unique_id);
-    reduction_state.insert(reduction_state.begin(), state);
+    it = reduction_state.insert(std::pair<std::string, ReductionState*>(state->getUniqueId(), state)).first;
   } else {
-    state = *it;
+    state = it->second;
   }
   applyOperation(state, data, size, startPoint);
   if (state->isDataSettingComplete()) {
     if (getNumberDistinctProcesses(comm_group) == 1) {
-      it = findReductionState(unique_id);
       reduction_state.erase(it);
       pthread_mutex_unlock(&reduction_state_lock);
       state->getCallback()(state->getData(), messaging->generateMetaData(state->getType(), state->getSize(), -1, state->getRoot(),
@@ -76,28 +93,6 @@ void collective_ndmReduce(Messaging* messaging, ThreadPool* threadPool, void* da
   }
 }
 
-static std::vector<ReductionState*>::iterator findReductionState(const char* uniqueId) {
-  std::string searchSalt = std::string(uniqueId);
-  size_t wildCardLocB = searchSalt.find('*');
-  std::vector<ReductionState*>::iterator it;
-  ReductionState* specificState = NULL;
-  for (it = reduction_state.begin(); it != reduction_state.end(); it++) {
-    size_t wildCardLocA = (*it)->getUniqueId().find('*');
-    if (wildCardLocA != std::string::npos || wildCardLocB != std::string::npos) {
-      if (wildCardLocA == std::string::npos) {
-        if ((*it)->getUniqueId().substr(0, wildCardLocB).compare(searchSalt.substr(0, wildCardLocB)) == 0) return it;
-      } else if (wildCardLocB == std::string::npos) {
-        if ((*it)->getUniqueId().substr(0, wildCardLocA).compare(searchSalt.substr(0, wildCardLocA)) == 0) return it;
-      } else {
-        if ((*it)->getUniqueId().substr(0, wildCardLocA).compare(searchSalt.substr(0, wildCardLocB)) == 0) return it;
-      }
-    } else {
-      if ((*it)->getUniqueId().compare(searchSalt) == 0) return it;
-    }
-  }
-  return reduction_state.end();
-}
-
 static void sendToSpecificProcess(Messaging* messaging, void* data, int type, int size, int source, int target, NDM_Group comm_group,
                                   const char* unique_id) {
   int dataSize;
@@ -107,9 +102,9 @@ static void sendToSpecificProcess(Messaging* messaging, void* data, int type, in
 
 static void reduction_callback_at_root(void* buffer, NDM_Metadata metaData) {
   pthread_mutex_lock(&reduction_state_lock);
-  std::vector<ReductionState*>::iterator it = findReductionState(metaData.unique_id);
+  std::map<std::string, ReductionState*, ReductionStateComparitor>::iterator it = reduction_state.find(metaData.unique_id);
   if (it == reduction_state.end()) raiseError("Reduction state not found");
-  ReductionState* specificState = *it;
+  ReductionState* specificState = it->second;
   specificState->lock();
   specificState->incrementContributedProcesses();
   bool isComplete = specificState->hasCompletedAllProcessesReduction();
