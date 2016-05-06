@@ -16,6 +16,7 @@ FILE* fileHandle;
 
 NDM_Group computationGroup, analysisGroup, localGroup, analyticsGroup;
 int num_comp_ranks;
+double startTime;
 
 void mandelbrotKernel(void*, NDM_Metadata);
 void numberBoundedPoints(void*, NDM_Metadata);
@@ -26,6 +27,7 @@ void localDataDump(void*, NDM_Metadata);
 int main(int argc, char* argv[]) {
   int provided;
   MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+  startTime = MPI_Wtime();
   ndmInit();
 
   if (argc >= 2) {
@@ -78,6 +80,7 @@ int main(int argc, char* argv[]) {
     ndmRecvStream(localDataDump, NDM_ANY_SOURCE, localGroup, "datadump_*");
   }
   ndmFinalise();
+  if (analytic_rank == 0) printf("Runtime %.2f seconds\n", MPI_Wtime() - startTime);
   MPI_Finalize();
   if (analytic_rank == 0) fclose(fileHandle);
   return 0;
@@ -145,14 +148,17 @@ void localDataDump(void* buffer, NDM_Metadata metadata) {
 void numberBoundedPoints(void* buffer, NDM_Metadata metadata) {
   int* data = (int*)buffer;
   fprintf(fileHandle, "Points inside = %.0f%%\n", ((double)data[0] / HXRES) * 100);
+  if (atoi(strstr(metadata.unique_id, "_") + 1) == HYRES) printf("Bounded points: %.2f seconds\n", MPI_Wtime() - startTime);
 }
 
 void firstNonBoundedPoint(void* buffer, NDM_Metadata metadata) {
   int* data = (int*)buffer;
   fprintf(fileHandle, "First non-bounded point=%d\n", data[0]);
+  if (atoi(strstr(metadata.unique_id, "_") + 1) == HYRES) printf("First Non-bounded: %.2f seconds\n", MPI_Wtime() - startTime);
 }
 
 void firstBoundedPoint(void* buffer, NDM_Metadata metadata) {
   int* data = (int*)buffer;
   fprintf(fileHandle, "First bounded point=%d\n", data[0]);
+  if (atoi(strstr(metadata.unique_id, "_") + 1) == HYRES) printf("First Bounded: %.2f seconds\n", MPI_Wtime() - startTime);
 }
