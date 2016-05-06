@@ -14,6 +14,24 @@
 #include "ndm.h"
 #include <pthread.h>
 
+struct AllReduceStateComparitor {
+  bool operator()(std::string a, std::string b) {
+    size_t wildCardLocA = a.find('*');
+    size_t wildCardLocB = b.find('*');
+    if (wildCardLocA != std::string::npos || wildCardLocB != std::string::npos) {
+      if (wildCardLocA == std::string::npos) {
+        return a.substr(0, wildCardLocB) < b.substr(0, wildCardLocB);
+      } else if (wildCardLocB == std::string::npos) {
+        return a.substr(0, wildCardLocA) < b.substr(0, wildCardLocA);
+      } else {
+        return a.substr(0, wildCardLocA) < b.substr(0, wildCardLocB);
+      }
+    } else {
+      return a < b;
+    }
+  }
+};
+
 class AllReduceState {
   std::string unique_id;
   void (*callback)(void*, NDM_Metadata);

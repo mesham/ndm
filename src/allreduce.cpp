@@ -5,8 +5,7 @@
  *      Author: nick
  */
 
-#include <vector>
-#include <iterator>
+#include <map>
 #include <string.h>
 #include "allreduce.h"
 #include "reduce.h"
@@ -20,14 +19,13 @@
 
 #define REDUCTION_ROOT 0
 
-static std::vector<AllReduceState*> allreduce_state;
+static std::map<std::string, AllReduceState*, AllReduceStateComparitor> allreduce_state;
 static pthread_mutex_t allreduce_state_mutex;
 static Messaging messaging;
 static ThreadPool threadPool;
 
 static void reductionCallback(void*, NDM_Metadata);
 static void broadcastCallback(void*, NDM_Metadata);
-static AllReduceState* findAllReduceState(const char*, bool);
 
 void initialise_ndmAllReduce(Messaging messaging_arg, ThreadPool threadPool_arg) {
   messaging = messaging_arg;
@@ -38,12 +36,15 @@ void initialise_ndmAllReduce(Messaging messaging_arg, ThreadPool threadPool_arg)
 void collective_ndmAllReduce(Messaging messaging_arg, ThreadPool threadPool_arg, void* data, int type, int size, NDM_Op operation,
                              void (*callback)(void*, NDM_Metadata), int my_rank, NDM_Group comm_group, const char* unique_id) {
   pthread_mutex_lock(&allreduce_state_mutex);
-  AllReduceState* specificState = findAllReduceState(unique_id, false);
-  bool newEntry = specificState == NULL;
+  std::map<std::string, AllReduceState*, AllReduceStateComparitor>::iterator it = allreduce_state.find(std::string(unique_id));
+  AllReduceState* specificState;
+  bool newEntry = it == allreduce_state.end();
   if (newEntry) {
     specificState = new AllReduceState(callback, getGroupLocalSize(comm_group), unique_id);
     specificState->incrementNumberEntriesRetrieved();
-    allreduce_state.insert(allreduce_state.begin(), specificState);
+    allreduce_state.insert(std::pair<std::string, AllReduceState*>(specificState->getUniqueId(), specificState));
+  } else {
+    specificState = it->second;
   }
   pthread_mutex_unlock(&allreduce_state_mutex);
   collective_ndmReduce(&messaging, &threadPool, data, type, size, size, 1, 0, operation, reductionCallback, REDUCTION_ROOT, my_rank,
@@ -68,43 +69,20 @@ static void reductionCallback(void* data, NDM_Metadata metaData) {
 
 static void broadcastCallback(void* data, NDM_Metadata metaData) {
   pthread_mutex_lock(&allreduce_state_mutex);
-  AllReduceState* specificState = findAllReduceState(metaData.unique_id, false);
+  std::map<std::string, AllReduceState*, AllReduceStateComparitor>::iterator it = allreduce_state.find(metaData.unique_id);
   pthread_mutex_unlock(&allreduce_state_mutex);
-  if (specificState == NULL) raiseError("Allreduce state not found");
+  if (it == allreduce_state.end()) raiseError("Allreduce state not found");
+  AllReduceState* specificState = it->second;
   specificState->lock();
   specificState->incrementCalledBack();
   bool lastEntry = specificState->getCalledBack() >= specificState->getNumberExpectedLocalCallbacks();
-  void (*cb)(void*, NDM_Metadata) = specificState->getCallback();
+  void (*callback)(void*, NDM_Metadata) = specificState->getCallback();
   if (lastEntry) {
     pthread_mutex_lock(&allreduce_state_mutex);
-    findAllReduceState(metaData.unique_id, true);
+    allreduce_state.erase(allreduce_state.find(metaData.unique_id));
     pthread_mutex_unlock(&allreduce_state_mutex);
     delete (specificState);
   }
   specificState->unlock();
-  cb(data, metaData);
-}
-
-static AllReduceState* findAllReduceState(const char* uniqueId, bool eraseEntry) {
-  std::string searchSalt = std::string(uniqueId);
-  size_t wildCardLocB = searchSalt.find('*');
-  AllReduceState* specificState = NULL;
-  std::vector<AllReduceState*>::iterator it;
-  for (it = allreduce_state.begin(); it != allreduce_state.end(); it++) {
-    size_t wildCardLocA = (*it)->getUniqueId().find('*');
-    if (wildCardLocA != std::string::npos || wildCardLocB != std::string::npos) {
-      if (wildCardLocA == std::string::npos) {
-        if ((*it)->getUniqueId().substr(0, wildCardLocB).compare(searchSalt.substr(0, wildCardLocB)) == 0) specificState = (*it);
-      } else if (wildCardLocB == std::string::npos) {
-        if ((*it)->getUniqueId().substr(0, wildCardLocA).compare(searchSalt.substr(0, wildCardLocA)) == 0) specificState = (*it);
-      } else {
-        if ((*it)->getUniqueId().substr(0, wildCardLocA).compare(searchSalt.substr(0, wildCardLocB)) == 0) specificState = (*it);
-      }
-    } else {
-      if ((*it)->getUniqueId().compare(searchSalt) == 0) specificState = (*it);
-    }
-    if (specificState != NULL) break;
-  }
-  if (eraseEntry && specificState != NULL) allreduce_state.erase(it);
-  return specificState;
+  callback(data, metaData);
 }
