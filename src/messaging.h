@@ -187,7 +187,8 @@ class Messaging {
   static std::vector<MPI_Request> outstandingSendRequests;
   static std::map<RequestUniqueIdentifier, RegisterdCommandContainer*> registeredCommands;
   static std::vector<SpecificMessage*> outstandingRequests;
-  static pthread_mutex_t mutex_outstandingSendRequests, mutex_outstandingRequests, mutex_messagingActive, mutex_numRegisteredCommands;;
+  static pthread_mutex_t mutex_outstandingSendRequests, mutex_outstandingRequests, mutex_messagingActive, mutex_numRegisteredCommands,
+      mutex_processingMsgOrCommand;
   static pthread_rwlock_t rwlock_registeredCommands;
   static bool continue_polling, messagingActive;
   static int rank, totalSize, numberRecurringCommands, srCleanIncrement, totalNumberCommands, totalNumberOutstandingMessages;

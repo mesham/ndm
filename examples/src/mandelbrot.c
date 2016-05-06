@@ -21,6 +21,7 @@ void firstBoundedPoint(void*, NDM_Metadata);
 int main(int argc, char* argv[]) {
   int provided;
   MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+  double startTime = MPI_Wtime();
   ndmInit();
 
   if (argc >= 2) {
@@ -58,6 +59,7 @@ int main(int argc, char* argv[]) {
   }
   ndmRecv(mandelbrotKernel, 0, NDM_GLOBAL_GROUP, "dist");
   ndmFinalise();
+  if (myrank == 0) printf("Runtime %.2f seconds\n", MPI_Wtime() - startTime);
   MPI_Finalize();
   if (myrank == 0) fclose(fileHandle);
   return 0;

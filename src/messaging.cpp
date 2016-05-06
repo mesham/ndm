@@ -25,7 +25,8 @@ std::vector<SpecificMessage*> Messaging::outstandingRequests;
 std::vector<MPI_Request> Messaging::outstandingSendRequests;
 std::map<RequestUniqueIdentifier, RegisterdCommandContainer*> Messaging::registeredCommands;
 
-pthread_mutex_t Messaging::mutex_outstandingSendRequests, Messaging::mutex_outstandingRequests, Messaging::mutex_messagingActive, Messaging::mutex_numRegisteredCommands;
+pthread_mutex_t Messaging::mutex_outstandingSendRequests, Messaging::mutex_outstandingRequests, Messaging::mutex_messagingActive,
+    Messaging::mutex_numRegisteredCommands, Messaging::mutex_processingMsgOrCommand;
 pthread_rwlock_t Messaging::rwlock_registeredCommands;
 bool Messaging::continue_polling = true, Messaging::messagingActive = true;
 int Messaging::rank = -1, Messaging::totalSize = -1, Messaging::numberRecurringCommands = 0, Messaging::srCleanIncrement,
@@ -108,7 +109,10 @@ bool Messaging::readyToShutdown() {
   pthread_mutex_lock(&mutex_numRegisteredCommands);
   int currentNumC = totalNumberCommands;
   pthread_mutex_unlock(&mutex_numRegisteredCommands);
-  if (outstandingRequests.empty() && currentNumC == numberRecurringCommands) {
+  pthread_mutex_lock(&mutex_outstandingRequests);
+  bool outstandingReqEmpty = outstandingRequests.empty();
+  pthread_mutex_unlock(&mutex_outstandingRequests);
+  if (outstandingReqEmpty && currentNumC == numberRecurringCommands) {
     // handleOutstandingRequests();
     cleanOutstandingSendRequests();
     if (outstandingSendRequests.empty()) return true;
@@ -119,6 +123,7 @@ bool Messaging::readyToShutdown() {
 void Messaging::init() {
   pthread_rwlock_init(&rwlock_registeredCommands, NULL);
   pthread_mutex_init(&mutex_outstandingRequests, NULL);
+  pthread_mutex_init(&mutex_processingMsgOrCommand, NULL);
   pthread_mutex_init(&mutex_outstandingSendRequests, NULL);
   pthread_mutex_init(&mutex_messagingActive, NULL);
   pthread_mutex_init(&mutex_numRegisteredCommands, NULL);
@@ -133,7 +138,8 @@ void Messaging::registerCommand(const char* unique_id, int source, int target, N
   pthread_mutex_lock(&mutex_messagingActive);
   messagingActive = true;
   pthread_mutex_unlock(&mutex_messagingActive);
- pthread_mutex_lock(&mutex_outstandingRequests);
+  pthread_mutex_lock(&mutex_processingMsgOrCommand);
+  pthread_mutex_lock(&mutex_outstandingRequests);
   std::vector<SpecificMessage*>::iterator it;
   std::vector<SpecificMessage*> outstandingRequestsToHandle;
   std::vector<std::vector<SpecificMessage*>::iterator> outstandingIteratorsToRemove;
@@ -154,9 +160,6 @@ void Messaging::registerCommand(const char* unique_id, int source, int target, N
   pthread_mutex_unlock(&mutex_outstandingRequests);
 
   if (outstandingRequestsToHandle.empty() || recurring) {
-    pthread_mutex_lock(&mutex_numRegisteredCommands);
-    totalNumberCommands++;
-    pthread_mutex_unlock(&mutex_numRegisteredCommands);
     RequestUniqueIdentifier ruuid = RequestUniqueIdentifier(source, target, comm_group, action_id, std::string(unique_id));
     pthread_rwlock_rdlock(&rwlock_registeredCommands);
     std::map<RequestUniqueIdentifier, RegisterdCommandContainer*>::iterator it = registeredCommands.find(ruuid);
@@ -173,8 +176,12 @@ void Messaging::registerCommand(const char* unique_id, int source, int target, N
     it->second->lock();
     pthread_rwlock_unlock(&rwlock_registeredCommands);
     it->second->pushCommand(new RegisteredCommand(unique_id, source, target, comm_group, action_id, recurring, callback));
+    pthread_mutex_lock(&mutex_numRegisteredCommands);
+    totalNumberCommands++;
+    pthread_mutex_unlock(&mutex_numRegisteredCommands);
     it->second->unlock();
   }
+  pthread_mutex_unlock(&mutex_processingMsgOrCommand);
   if (!outstandingRequestsToHandle.empty()) {
     for (it = outstandingRequestsToHandle.begin(); it < outstandingRequestsToHandle.end(); it++) {
       callback((*it)->getData(), generateMetaData((*it)->getMessageType(), (*it)->getMessageLength(), (*it)->getSourcePid(),
@@ -245,6 +252,7 @@ bool Messaging::getMessagingActive() {
 void Messaging::handleCommand(void* data) {
   SpecificMessage* message = (SpecificMessage*)data;
   bool commandExecuted = false;
+  pthread_mutex_lock(&mutex_processingMsgOrCommand);
   pthread_rwlock_rdlock(&rwlock_registeredCommands);
   std::map<RequestUniqueIdentifier, RegisterdCommandContainer*>::iterator it = registeredCommands.find(RequestUniqueIdentifier(
       message->getSourcePid(), message->getTargetPid(), message->getCommGroup(), message->getActionId(), *message->getUniqueId()));
@@ -253,16 +261,17 @@ void Messaging::handleCommand(void* data) {
     pthread_rwlock_unlock(&rwlock_registeredCommands);
     if (!it->second->isEmpty()) {
       RegisteredCommand* locatedCommand = it->second->getFirstCommandKeepOnlyIfRecurring();
-      it->second->unlock();
-      locatedCommand->getCallback()(
-          message->getData(), generateMetaData(message->getMessageType(), message->getMessageLength(), message->getSourcePid(),
-                                               message->getTargetPid(), message->getCommGroup(), message->getUniqueId()->c_str()));
       if (!locatedCommand->getRecurring()) {
         pthread_mutex_lock(&mutex_numRegisteredCommands);
         totalNumberCommands--;
         pthread_mutex_unlock(&mutex_numRegisteredCommands);
-        delete locatedCommand;
       }
+      it->second->unlock();
+      pthread_mutex_unlock(&mutex_processingMsgOrCommand);
+      locatedCommand->getCallback()(
+          message->getData(), generateMetaData(message->getMessageType(), message->getMessageLength(), message->getSourcePid(),
+                                               message->getTargetPid(), message->getCommGroup(), message->getUniqueId()->c_str()));
+      if (!locatedCommand->getRecurring()) delete locatedCommand;
       commandExecuted = true;
     } else {
       it->second->unlock();
@@ -275,5 +284,6 @@ void Messaging::handleCommand(void* data) {
     pthread_mutex_lock(&mutex_outstandingRequests);
     outstandingRequests.push_back(newMessage);
     pthread_mutex_unlock(&mutex_outstandingRequests);
+    pthread_mutex_unlock(&mutex_processingMsgOrCommand);
   }
 }

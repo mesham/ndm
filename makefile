@@ -16,7 +16,8 @@ rm       = rm -Rf
 all: ndm
 
 ndm: build_buildDir $(OBJECTS)
-	$(CC) -shared -o libndm.so $(OBJECTS) $(LFLAGS)
+	$(CC) -shared -Wl,-soname,libndm.so -o libndm.so $(OBJECTS) $(LFLAGS)
+	ar rcs libndm.a $(OBJECTS) $(LFLAGS)
 
 build_buildDir:
 	@mkdir -p $(OBJDIR)
