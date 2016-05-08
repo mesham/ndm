@@ -51,8 +51,8 @@ int main(int argc, char* argv[]) {
   int size, my_global_rank, computation_group_rank, analytic_rank;
   ndmGroupRank(NDM_GLOBAL_GROUP, &my_global_rank);
 
-  ndmGroupCreateWithStride(&computationGroup, NDM_GLOBAL_GROUP, 11, 1);
-  ndmGroupExtractChunkContainingRank(&localGroup, NDM_GLOBAL_GROUP, 12, my_global_rank);
+  ndmGroupCreateWithStride(&computationGroup, NDM_GLOBAL_GROUP, 3, 1);
+  ndmGroupExtractChunkContainingRank(&localGroup, NDM_GLOBAL_GROUP, 4, my_global_rank);
   ndmGroupCreateDisjoint(&analyticsGroup, NDM_GLOBAL_GROUP, computationGroup);
 
   ndmGroupSize(computationGroup, &size);
@@ -60,6 +60,11 @@ int main(int argc, char* argv[]) {
   num_comp_ranks--;
   ndmGroupRank(computationGroup, &computation_group_rank);
   ndmGroupRank(analyticsGroup, &analytic_rank);
+
+  if (num_comp_ranks == 0 && computation_group_rank == -1) {
+    fprintf(stderr, "Selected empty computation group, quitting as this is not supported in this example\n");
+    abort();
+  }
 
   if (analytic_rank == 0) fileHandle = fopen("result_data", "w");
 
