@@ -13,6 +13,7 @@ int getTypeSize(int type) {
   if (type == NDM_INT) return 4;
   if (type == NDM_FLOAT) return 4;
   if (type == NDM_DOUBLE) return 8;
+  if (type == NDM_BYTE) return 1;
   if (type == NDM_NOTYPE) return 0;
   fprintf(stderr, "Error in type matching\n");
   return -1;

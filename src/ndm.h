@@ -12,6 +12,7 @@
 #define NDM_INT 1
 #define NDM_FLOAT 2
 #define NDM_DOUBLE 3
+#define NDM_BYTE 4
 
 #define NDM_ANY_SOURCE -1
 #define NDM_ANY_MYRANK -1
