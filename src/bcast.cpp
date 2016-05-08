@@ -16,6 +16,7 @@
 #include "groups.h"
 #include "ndm.h"
 #include "pthread.h"
+#include "misc.h"
 
 static int BCAST_ACTION_ID = 1;
 
@@ -30,7 +31,7 @@ static ThreadPool threadPool;
 static void localBcastCallback(void*);
 static void sendToSpecificProcess(Messaging, void*, int, int, int, int, NDM_Group, const char*);
 
-static std::map<std::string, BcastState*, BcastStateComparitor> bcastState;
+static std::map<std::string, BcastState*, UUIDStateComparitor> bcastState;
 static pthread_mutex_t bcastState_mutex;
 
 void initialise_ndmBcast(Messaging messaging_arg, ThreadPool threadPool_arg) {
@@ -45,7 +46,7 @@ void collective_ndmBcast(Messaging messaging, ThreadPool threadPool, void* data,
                          void (*callback)(void*, NDM_Metadata), int root, int my_rank, NDM_Group comm_group, const char* unique_id) {
   bool rankIsLocalToGroup = (my_rank >= 0 && my_rank == root) || (my_rank == NDM_ANY_MYRANK && isRankLocalToGroup(comm_group, root));
   pthread_mutex_lock(&bcastState_mutex);
-  std::map<std::string, BcastState*, BcastStateComparitor>::iterator it = bcastState.find(std::string(unique_id));
+  std::map<std::string, BcastState*, UUIDStateComparitor>::iterator it = bcastState.find(std::string(unique_id));
   BcastState* state;
   if (rankIsLocalToGroup && (my_rank != NDM_ANY_MYRANK || it == bcastState.end())) {
     if (it == bcastState.end()) {

@@ -19,7 +19,7 @@
 
 #define REDUCTION_ROOT 0
 
-static std::map<std::string, AllReduceState*, AllReduceStateComparitor> allreduce_state;
+static std::map<std::string, AllReduceState*, UUIDStateComparitor> allreduce_state;
 static pthread_mutex_t allreduce_state_mutex;
 static Messaging messaging;
 static ThreadPool threadPool;
@@ -36,7 +36,7 @@ void initialise_ndmAllReduce(Messaging messaging_arg, ThreadPool threadPool_arg)
 void collective_ndmAllReduce(Messaging messaging_arg, ThreadPool threadPool_arg, void* data, int type, int size, NDM_Op operation,
                              void (*callback)(void*, NDM_Metadata), int my_rank, NDM_Group comm_group, const char* unique_id) {
   pthread_mutex_lock(&allreduce_state_mutex);
-  std::map<std::string, AllReduceState*, AllReduceStateComparitor>::iterator it = allreduce_state.find(std::string(unique_id));
+  std::map<std::string, AllReduceState*, UUIDStateComparitor>::iterator it = allreduce_state.find(std::string(unique_id));
   AllReduceState* specificState;
   bool newEntry = it == allreduce_state.end();
   if (newEntry) {
@@ -69,7 +69,7 @@ static void reductionCallback(void* data, NDM_Metadata metaData) {
 
 static void broadcastCallback(void* data, NDM_Metadata metaData) {
   pthread_mutex_lock(&allreduce_state_mutex);
-  std::map<std::string, AllReduceState*, AllReduceStateComparitor>::iterator it = allreduce_state.find(metaData.unique_id);
+  std::map<std::string, AllReduceState*, UUIDStateComparitor>::iterator it = allreduce_state.find(metaData.unique_id);
   pthread_mutex_unlock(&allreduce_state_mutex);
   if (it == allreduce_state.end()) raiseError("Allreduce state not found");
   AllReduceState* specificState = it->second;

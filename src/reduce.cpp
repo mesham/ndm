@@ -20,7 +20,7 @@
 
 static int REDUCE_ACTION_ID = 2;
 
-static std::map<std::string, ReductionState*, ReductionStateComparitor> reduction_state;
+static std::map<std::string, ReductionState*, UUIDStateComparitor> reduction_state;
 static pthread_mutex_t reduction_state_lock;
 static Messaging messaging;
 static ThreadPool threadPool;
@@ -42,7 +42,7 @@ void collective_ndmReduce(Messaging* messaging, ThreadPool* threadPool, void* da
                           int contributionsPerElement, int startPoint, NDM_Op operation, void (*callback)(void*, NDM_Metadata),
                           int root, int my_rank, NDM_Group comm_group, const char* unique_id) {
   pthread_mutex_lock(&reduction_state_lock);
-  std::map<std::string, ReductionState*, ReductionStateComparitor>::iterator it = reduction_state.find(unique_id);
+  std::map<std::string, ReductionState*, UUIDStateComparitor>::iterator it = reduction_state.find(unique_id);
   ReductionState* state;
   if (it == reduction_state.end()) {
     state = new ReductionState(type, totalSize, contributionsPerElement, callback, operation, root, comm_group, unique_id);
@@ -84,7 +84,7 @@ static void sendToSpecificProcess(Messaging* messaging, void* data, int type, in
 
 static void reduction_callback_at_root(void* buffer, NDM_Metadata metaData) {
   pthread_mutex_lock(&reduction_state_lock);
-  std::map<std::string, ReductionState*, ReductionStateComparitor>::iterator it = reduction_state.find(metaData.unique_id);
+  std::map<std::string, ReductionState*, UUIDStateComparitor>::iterator it = reduction_state.find(metaData.unique_id);
   if (it == reduction_state.end()) raiseError("Reduction state not found");
   ReductionState* specificState = it->second;
   specificState->lock();

@@ -16,7 +16,7 @@
 #include "misc.h"
 #include "ndm.h"
 
-static std::map<std::string, BarrierState*, BarrierStateComparitor> barrier_state;
+static std::map<std::string, BarrierState*, UUIDStateComparitor> barrier_state;
 static pthread_mutex_t barrier_state_mutex;
 
 static void reductionCallback(void*, NDM_Metadata);
@@ -35,7 +35,7 @@ void collective_ndmBarrier(Messaging messaging, ThreadPool threadPool, void (*ca
 
 static void reductionCallback(void* data, NDM_Metadata metaData) {
   pthread_mutex_lock(&barrier_state_mutex);
-  std::map<std::string, BarrierState*, BarrierStateComparitor>::iterator it = barrier_state.find(metaData.unique_id);
+  std::map<std::string, BarrierState*, UUIDStateComparitor>::iterator it = barrier_state.find(metaData.unique_id);
   if (it == barrier_state.end()) raiseError("Barrier state not found");
   BarrierState* specificState = it->second;
   barrier_state.erase(it);
