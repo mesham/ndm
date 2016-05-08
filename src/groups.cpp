@@ -133,7 +133,7 @@ NDM_Group createDisjointGroup(NDM_Group groupA, NDM_Group groupB) {
 
     for (i = 0; i < itB->second->getGroupSize(); i++) {
       for (j = 0; j < itA->second->getGroupSize(); j++) {
-        if (itA->second->getGroupEntries()[i] == itB->second->getGroupEntries()[j]) break;
+        if (itA->second->getGroupEntries()[j] == itB->second->getGroupEntries()[i]) break;
       }
       if (j == itA->second->getGroupSize()) {
         if (myExistingRank == itB->second->getGroupEntries()[i]) myNewRank = actualSize;
