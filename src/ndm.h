@@ -42,7 +42,7 @@ struct ndm_struct_metadata {
 
 typedef struct ndm_struct_metadata NDM_Metadata;
 
-int ndmInit(void);
+int ndmInit(int *, char ***);
 void ndmSend(void *, int, int, int, NDM_Group, const char *);
 int ndmRecv(void (*)(void *, NDM_Metadata), int, NDM_Group, const char *);
 int ndmRecvStream(void (*)(void *, NDM_Metadata), int, NDM_Group, const char *);
@@ -67,6 +67,8 @@ int ndmGroupLocalSize(NDM_Group, int *);
 int ndmGetGroupsGlobalNthRank(NDM_Group, int, int *);
 void generateUUID(char *, unsigned int);
 int ndmFinalise(void);
+int ndmLockMPI();
+int ndmUnlockMPI();
 
 #ifdef __cplusplus
 }

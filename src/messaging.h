@@ -188,16 +188,20 @@ class Messaging {
   static std::map<RequestUniqueIdentifier, RegisterdCommandContainer*> registeredCommands;
   static std::vector<SpecificMessage*> outstandingRequests;
   static pthread_mutex_t mutex_outstandingSendRequests, mutex_outstandingRequests, mutex_messagingActive, mutex_numRegisteredCommands,
-      mutex_processingMsgOrCommand;
+      mutex_processingMsgOrCommand, mpi_mutex;
   static pthread_rwlock_t rwlock_registeredCommands;
-  static bool continue_polling, messagingActive;
+  static bool continue_polling, messagingActive, protectMPI, mpiInitHere;
   static int rank, totalSize, numberRecurringCommands, srCleanIncrement, totalNumberCommands, totalNumberOutstandingMessages;
   static void runCommand(void*);
   static void cleanOutstandingSendRequests();
   static void localMessagingCallback(void*);
+  static void waitAllForMPIRequest(int, MPI_Request*);
 
  public:
-  static void init();
+  static void init(int*, char***);
+  static void finalise();
+  static void lockMPI();
+  static void unlockMPI();
   static bool getMessagingActive();
   static void clearMessagingActive();
   static int getMyRank() { return rank; }

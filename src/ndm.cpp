@@ -32,10 +32,10 @@ static void awaitGlobalCompletion();
 
 static const char alphanum[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-int ndmInit(void) {
+int ndmInit(int* argc, char*** argv) {
   continue_polling = true;
   threadPool.initThreadPool();
-  messaging.init();
+  messaging.init(argc, argv);
   initialiseGroupDirectory();
   initialise_ndmBarrier();
   initialise_ndmReduce(messaging, threadPool);
@@ -50,6 +50,16 @@ void threadEntryPoint(void* data) {
     SpecificMessage* m = messaging.awaitCommand();  // do inside a thread
     if (m != NULL) threadPool.startThread(messaging.handleCommand, (void*)m);
   }
+}
+
+int ndmLockMPI() {
+  messaging.lockMPI();
+  return 0;
+}
+
+int ndmUnlockMPI() {
+  messaging.unlockMPI();
+  return 0;
 }
 
 void ndmSend(void* data, int size, int type, int target, NDM_Group comm_group, const char* unique_id) {
@@ -189,6 +199,7 @@ int ndmFinalise(void) {
   messaging.handleOutstandingRequests();
   while (!threadPool.isThreadPoolFinished()) {
   }
+  messaging.finalise();
   return 0;
 }
 

@@ -13,6 +13,8 @@
 #include <vector>
 #include <stack>
 #include <iterator>
+#include <unistd.h>
+#include "misc.h"
 #include "messaging.h"
 #include "data_types.h"
 #include "groups.h"
@@ -20,15 +22,16 @@
 
 #define MPI_TAG 16384
 #define CLEAN_SR_EVERY 1000
+#define WAIT_BETWEEN_MPI_TESTS 1000
 
 std::vector<SpecificMessage*> Messaging::outstandingRequests;
 std::vector<MPI_Request> Messaging::outstandingSendRequests;
 std::map<RequestUniqueIdentifier, RegisterdCommandContainer*> Messaging::registeredCommands;
 
 pthread_mutex_t Messaging::mutex_outstandingSendRequests, Messaging::mutex_outstandingRequests, Messaging::mutex_messagingActive,
-    Messaging::mutex_numRegisteredCommands, Messaging::mutex_processingMsgOrCommand;
+    Messaging::mutex_numRegisteredCommands, Messaging::mutex_processingMsgOrCommand, Messaging::mpi_mutex;
 pthread_rwlock_t Messaging::rwlock_registeredCommands;
-bool Messaging::continue_polling = true, Messaging::messagingActive = true;
+bool Messaging::continue_polling = true, Messaging::messagingActive = true, Messaging::protectMPI, Messaging::mpiInitHere;
 int Messaging::rank = -1, Messaging::totalSize = -1, Messaging::numberRecurringCommands = 0, Messaging::srCleanIncrement,
     Messaging::totalNumberCommands;
 
@@ -37,7 +40,9 @@ SpecificMessage* Messaging::awaitCommand() {
   char* buffer, *data_buffer;
   MPI_Status message_status;
   while (continue_polling) {
+    lockMPI();
     MPI_Iprobe(MPI_ANY_SOURCE, MPI_TAG, MPI_COMM_WORLD, &pending_message, &message_status);
+    unlockMPI();
     if (pending_message) {
       if (++srCleanIncrement % CLEAN_SR_EVERY == 0) {
         cleanOutstandingSendRequests();
@@ -46,9 +51,13 @@ SpecificMessage* Messaging::awaitCommand() {
       pthread_mutex_lock(&mutex_messagingActive);
       messagingActive = true;
       pthread_mutex_unlock(&mutex_messagingActive);
+      lockMPI();
       MPI_Get_count(&message_status, MPI_BYTE, &message_size);
+      unlockMPI();
       buffer = (char*)malloc(message_size);
+      lockMPI();
       MPI_Recv(buffer, message_size, MPI_BYTE, message_status.MPI_SOURCE, MPI_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      unlockMPI();
       int data_type = *((int*)buffer);
       int source_pid = *((int*)&buffer[4]);
       int target_pid = *((int*)&buffer[8]);
@@ -79,7 +88,9 @@ void Messaging::cleanOutstandingSendRequests() {
   if (pthread_mutex_trylock(&mutex_outstandingSendRequests) == 0) {
     for (it = outstandingSendRequests.begin(); it != outstandingSendRequests.end(); it++) {
       MPI_Request req = (*it);
+      lockMPI();
       MPI_Test(&req, &flag, MPI_STATUS_IGNORE);
+      unlockMPI();
       if (flag) indexes_to_remove.push_back(it);
     }
     for (i = indexes_to_remove.size() - 1; i >= 0; i--) {
@@ -98,10 +109,24 @@ void Messaging::handleOutstandingRequests() {
     std::copy(outstandingSendRequests.begin(), outstandingSendRequests.end(), arr);
     outstandingSendRequests.erase(outstandingSendRequests.begin(), outstandingSendRequests.end());
     pthread_mutex_unlock(&mutex_outstandingSendRequests);
-    MPI_Waitall(number_sends, arr, MPI_STATUSES_IGNORE);
+    waitAllForMPIRequest(number_sends, arr);
     free(arr);
   } else {
     pthread_mutex_unlock(&mutex_outstandingSendRequests);
+  }
+}
+
+void Messaging::waitAllForMPIRequest(int number_sends, MPI_Request* arr) {
+  if (protectMPI) {
+    int flag = 0;
+    while (flag == 0) {
+      lockMPI();
+      MPI_Testall(number_sends, arr, &flag, MPI_STATUSES_IGNORE);
+      unlockMPI();
+      if (flag == 0) usleep(useconds_t(WAIT_BETWEEN_MPI_TESTS));
+    }
+  } else {
+    MPI_Waitall(number_sends, arr, MPI_STATUSES_IGNORE);
   }
 }
 
@@ -120,13 +145,40 @@ bool Messaging::readyToShutdown() {
   return false;
 }
 
-void Messaging::init() {
+void Messaging::lockMPI() {
+  if (protectMPI) pthread_mutex_lock(&mpi_mutex);
+}
+
+void Messaging::unlockMPI() {
+  if (protectMPI) pthread_mutex_unlock(&mpi_mutex);
+}
+
+void Messaging::finalise() {
+  if (mpiInitHere) MPI_Finalize();
+}
+
+void Messaging::init(int* argc, char*** argv) {
   pthread_rwlock_init(&rwlock_registeredCommands, NULL);
   pthread_mutex_init(&mutex_outstandingRequests, NULL);
   pthread_mutex_init(&mutex_processingMsgOrCommand, NULL);
   pthread_mutex_init(&mutex_outstandingSendRequests, NULL);
   pthread_mutex_init(&mutex_messagingActive, NULL);
   pthread_mutex_init(&mutex_numRegisteredCommands, NULL);
+  pthread_mutex_init(&mpi_mutex, NULL);
+  int is_mpi_init, provided;
+  MPI_Initialized(&is_mpi_init);
+  if (is_mpi_init) {
+    mpiInitHere = false;
+    MPI_Query_thread(&provided);
+    if (provided != MPI_THREAD_MULTIPLE && provided != MPI_THREAD_SERIALIZED) {
+      raiseError("You must initialise MPI in thread serialised or multiple, or let NDM do this for you");
+    }
+    protectMPI = provided == MPI_THREAD_SERIALIZED;
+  } else {
+    mpiInitHere = true;
+    MPI_Init_thread(argc, argv, MPI_THREAD_SERIALIZED, &provided);
+    protectMPI = true;
+  }
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &totalSize);
   srCleanIncrement = 0;
@@ -143,10 +195,30 @@ void Messaging::registerCommand(const char* unique_id, int source, int target, N
   std::vector<SpecificMessage*>::iterator it;
   std::vector<SpecificMessage*> outstandingRequestsToHandle;
   std::vector<std::vector<SpecificMessage*>::iterator> outstandingIteratorsToRemove;
+  std::string uuid_string = std::string(unique_id);
   for (it = outstandingRequests.begin(); it < outstandingRequests.end(); it++) {
-    if ((*it)->getSourcePid() == source && (*it)->getActionId() == action_id && (*it)->getCommGroup() == comm_group &&
-        ((*it)->getTargetPid() == NDM_ANY_SOURCE || target == NDM_ANY_SOURCE || (*it)->getTargetPid() == target) &&
-        strcmp((*it)->getUniqueId()->c_str(), unique_id) == 0) {
+    if (((*it)->getSourcePid() == source || source == NDM_ANY_SOURCE) && (*it)->getActionId() == action_id &&
+        (*it)->getCommGroup() == comm_group &&
+        ((*it)->getTargetPid() == NDM_ANY_SOURCE || target == NDM_ANY_SOURCE || (*it)->getTargetPid() == target)) {
+
+      if (*(*it)->getUniqueId() != uuid_string) {
+        size_t wildCardLocA = uuid_string.find('*');
+        size_t wildCardLocB = (*it)->getUniqueId()->find('*');
+        if (wildCardLocA != std::string::npos || wildCardLocB != std::string::npos) {
+          if (wildCardLocA == std::string::npos &&
+              uuid_string.substr(0, wildCardLocB) != (*it)->getUniqueId()->substr(0, wildCardLocB)) {
+            continue;
+          } else if (wildCardLocB == std::string::npos &&
+                     uuid_string.substr(0, wildCardLocA) != (*it)->getUniqueId()->substr(0, wildCardLocA)) {
+            continue;
+          } else if (uuid_string.substr(0, wildCardLocA) != (*it)->getUniqueId()->substr(0, wildCardLocB)) {
+            continue;
+          }
+        } else {
+          continue;
+        }
+      }
+
       outstandingRequestsToHandle.push_back(*it);
       outstandingIteratorsToRemove.push_back(it);
     }
@@ -230,7 +302,9 @@ void Messaging::sendMessage(char* buffer, int payload_size, int target, NDM_Grou
   messagingActive = true;
   pthread_mutex_unlock(&mutex_messagingActive);
   MPI_Request request_handle;
+  lockMPI();
   MPI_Isend(buffer, payload_size, MPI_BYTE, translateRankFromGroup(comm_group, target), MPI_TAG, MPI_COMM_WORLD, &request_handle);
+  unlockMPI();
   pthread_mutex_lock(&mutex_outstandingSendRequests);
   outstandingSendRequests.push_back(request_handle);
   pthread_mutex_unlock(&mutex_outstandingSendRequests);
